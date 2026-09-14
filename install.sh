@@ -9,7 +9,7 @@ RELEASE_TAG=${TIMETONE_RELEASE_TAG:-}
 
 resolve_release() {
   if [ -z "$RELEASE_TAG" ]; then
-    RELEASE_TAG=$(curl -fsSL https://api.github.com/repos/DrB0rk/TimeTone/releases/latest |
+    RELEASE_TAG=$(curl -fsSL https://api.github.com/repos/PolderLabsVOF/TimeTone/releases/latest |
       sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)
   fi
   case "$RELEASE_TAG" in v[0-9]*.[0-9]*.[0-9]*) ;; *) printf '%s\n' "Could not resolve a stable release." >&2; exit 1 ;; esac
@@ -121,7 +121,7 @@ if [ -f "$SCRIPT_DIR/web/.env" ] && [ "${TIMETONE_UPDATE_IN_PROGRESS:-}" != 1 ];
       trap 'rm -rf "$TMP_UPDATE"' EXIT HUP INT TERM
       show_release_preview "update"
       printf '%s\n' "  [1/4] Downloading application source..." >&2
-      curl -fsSL "https://codeload.github.com/DrB0rk/TimeTone/tar.gz/$SOURCE_REF?cachebust=$(date +%s%N)" -o "$TMP_UPDATE/timetone.tar.gz"
+      curl -fsSL "https://codeload.github.com/PolderLabsVOF/TimeTone/tar.gz/$SOURCE_REF?cachebust=$(date +%s%N)" -o "$TMP_UPDATE/timetone.tar.gz"
       mkdir -p "$TMP_UPDATE/source"
       printf '%s\n' "  [2/4] Checking the downloaded source..." >&2
       tar -xzf "$TMP_UPDATE/timetone.tar.gz" -C "$TMP_UPDATE/source"
@@ -132,7 +132,7 @@ if [ -f "$SCRIPT_DIR/web/.env" ] && [ "${TIMETONE_UPDATE_IN_PROGRESS:-}" != 1 ];
       require_release_platform
       if [ "$INSTALLED_MODE" = native ]; then
         printf '%s\n' "  [3/4] Downloading the native web runtime..." >&2
-        curl -fsSL "https://github.com/DrB0rk/TimeTone/releases/download/$RELEASE_TAG/timetone-web.tar.gz" -o "$TMP_UPDATE/timetone-web.tar.gz"
+        curl -fsSL "https://github.com/PolderLabsVOF/TimeTone/releases/download/$RELEASE_TAG/timetone-web.tar.gz" -o "$TMP_UPDATE/timetone-web.tar.gz"
         tar -tzf "$TMP_UPDATE/timetone-web.tar.gz" | grep -q 'web/.next/standalone/server.js' || {
           printf '%s\n' "Release is missing the prebuilt web runtime; current installation was not stopped." >&2
           exit 1
@@ -177,7 +177,7 @@ if [ ! -f "$SCRIPT_DIR/web/package.json" ]; then
     for arg in "$@"; do [ "$arg" = "--native" ] && REQUEST_NATIVE=true; done
     if [ "$REQUEST_NATIVE" = true ]; then
       printf '%s\n' "  [1/2] Downloading the prebuilt native web runtime..."
-      if curl -fsSL "https://github.com/DrB0rk/TimeTone/releases/download/$RELEASE_TAG/timetone-web.tar.gz" -o "$TMP_DIR/timetone-web.tar.gz"; then
+      if curl -fsSL "https://github.com/PolderLabsVOF/TimeTone/releases/download/$RELEASE_TAG/timetone-web.tar.gz" -o "$TMP_DIR/timetone-web.tar.gz"; then
         tar -xzf "$TMP_DIR/timetone-web.tar.gz" -C "$INSTALL_DIR"
       else
         printf '%s\n' "Prebuilt release unavailable. No local build was attempted; retry when the release is available." >&2
@@ -185,7 +185,7 @@ if [ ! -f "$SCRIPT_DIR/web/package.json" ]; then
       fi
     else
       printf '%s\n' "  [1/2] Downloading the application source..."
-      curl -fsSL "https://codeload.github.com/DrB0rk/TimeTone/tar.gz/$SOURCE_REF?cachebust=$(date +%s)" -o "$TMP_DIR/timetone.tar.gz"
+      curl -fsSL "https://codeload.github.com/PolderLabsVOF/TimeTone/tar.gz/$SOURCE_REF?cachebust=$(date +%s)" -o "$TMP_DIR/timetone.tar.gz"
       mkdir -p "$TMP_DIR/source"
       tar -xzf "$TMP_DIR/timetone.tar.gz" -C "$TMP_DIR/source"
       SOURCE_DIR=$(find "$TMP_DIR/source" -mindepth 1 -maxdepth 1 -type d | head -n 1)
@@ -195,7 +195,7 @@ if [ ! -f "$SCRIPT_DIR/web/package.json" ]; then
   # Always refresh the entrypoint, including when a previous failed install
   # already created INSTALL_DIR. This avoids rerunning a stale cached script.
   printf '%s\n' "  [2/2] Starting the TimeTone installer..."
-  curl -fsSL "https://raw.githubusercontent.com/DrB0rk/TimeTone/main/install.sh?cachebust=$(date +%s%N)" -o "$INSTALL_DIR/install.sh"
+  curl -fsSL "https://raw.githubusercontent.com/PolderLabsVOF/TimeTone/main/install.sh?cachebust=$(date +%s%N)" -o "$INSTALL_DIR/install.sh"
   exec sh "$INSTALL_DIR/install.sh" "$@"
 fi
 ROOT_DIR=$SCRIPT_DIR
@@ -513,7 +513,7 @@ install_prebuilt_native() {
   [ -f "$WEB_DIR/.next/standalone/server.js" ] && return
   BUNDLE_STAGE=$(mktemp -d)
   phase "3/4" "Downloading the native web runtime..."
-  run_with_spinner "Downloading TimeTone $RELEASE_TAG" curl -fsSL "https://github.com/DrB0rk/TimeTone/releases/download/$RELEASE_TAG/timetone-web.tar.gz" -o "$BUNDLE_STAGE/web.tar.gz"
+  run_with_spinner "Downloading TimeTone $RELEASE_TAG" curl -fsSL "https://github.com/PolderLabsVOF/TimeTone/releases/download/$RELEASE_TAG/timetone-web.tar.gz" -o "$BUNDLE_STAGE/web.tar.gz"
   phase "4/4" "Unpacking the verified runtime..."
   tar -xzf "$BUNDLE_STAGE/web.tar.gz" -C "$ROOT_DIR"
   [ -f "$WEB_DIR/.next/standalone/server.js" ] || {
@@ -526,7 +526,7 @@ install_prebuilt_docker() {
   resolve_release
   IMAGE_STAGE=$(mktemp -d)
   phase "3/4" "Downloading the Docker image..."
-  run_with_spinner "Downloading TimeTone $RELEASE_TAG" curl -fsSL "https://github.com/DrB0rk/TimeTone/releases/download/$RELEASE_TAG/timetone-docker.tar.gz" -o "$IMAGE_STAGE/docker.tar.gz"
+  run_with_spinner "Downloading TimeTone $RELEASE_TAG" curl -fsSL "https://github.com/PolderLabsVOF/TimeTone/releases/download/$RELEASE_TAG/timetone-docker.tar.gz" -o "$IMAGE_STAGE/docker.tar.gz"
   phase "4/4" "Loading and starting the Docker image..."
   run_with_spinner "Loading TimeTone $RELEASE_TAG" docker load -i "$IMAGE_STAGE/docker.tar.gz"
   (cd "$WEB_DIR" && docker compose config -q && docker compose up -d --no-build)

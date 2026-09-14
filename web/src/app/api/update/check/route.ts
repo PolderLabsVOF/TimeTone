@@ -4,7 +4,7 @@ import { requireAuth } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
-const repository = "DrB0rk/TimeTone";
+const repository = "PolderLabsVOF/TimeTone";
 function currentVersion() {
   for (const candidate of [path.join(process.cwd(), "..", "VERSION"), path.join(process.cwd(), "VERSION"), path.join(process.cwd(), "package.json")]) {
     try {

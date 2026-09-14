@@ -8,10 +8,10 @@
 An offline-first time clock for the ESP32-2432S032 CYD and a polished self-hosted dashboard.</p>
 
 <p align="center">
-  <a href="https://github.com/DrB0rk/TimeTone/releases"><img src="https://img.shields.io/github/v/release/DrB0rk/TimeTone?style=flat-square&color=17211b&label=release" alt="Latest release"></a>
-  <a href="https://github.com/DrB0rk/TimeTone/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/DrB0rk/TimeTone/ci.yml?style=flat-square&label=CI" alt="CI status"></a>
-  <a href="https://github.com/DrB0rk/TimeTone/blob/main/LICENSE"><img src="https://img.shields.io/github/license/DrB0rk/TimeTone?style=flat-square" alt="License"></a>
-  <a href="https://github.com/DrB0rk/TimeTone"><img src="https://img.shields.io/github/stars/DrB0rk/TimeTone?style=flat-square" alt="GitHub stars"></a>
+  <a href="https://github.com/PolderLabsVOF/TimeTone/releases"><img src="https://img.shields.io/github/v/release/PolderLabsVOF/TimeTone?style=flat-square&color=17211b&label=release" alt="Latest release"></a>
+  <a href="https://github.com/PolderLabsVOF/TimeTone/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/PolderLabsVOF/TimeTone/ci.yml?style=flat-square&label=CI" alt="CI status"></a>
+  <a href="https://github.com/PolderLabsVOF/TimeTone/blob/main/LICENSE"><img src="https://img.shields.io/github/license/PolderLabsVOF/TimeTone?style=flat-square" alt="License"></a>
+  <a href="https://github.com/PolderLabsVOF/TimeTone"><img src="https://img.shields.io/github/stars/PolderLabsVOF/TimeTone?style=flat-square" alt="GitHub stars"></a>
 </p>
 
 TimeTone gives a small team a fast, friendly way to clock in and out. An
@@ -65,7 +65,7 @@ dependencies as well as TimeTone. It downloads the latest repository into
 `./TimeTone`, then offers Docker or native Node.js installation:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/DrB0rk/TimeTone/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/PolderLabsVOF/TimeTone/main/install.sh | sh
 ```
 
 The installer asks for:
@@ -87,14 +87,14 @@ host glibc requirement. Other architectures are not covered by these binaries.
 Choose a mode explicitly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/DrB0rk/TimeTone/main/install.sh | sh -s -- --docker
-curl -fsSL https://raw.githubusercontent.com/DrB0rk/TimeTone/main/install.sh | sh -s -- --native
+curl -fsSL https://raw.githubusercontent.com/PolderLabsVOF/TimeTone/main/install.sh | sh -s -- --docker
+curl -fsSL https://raw.githubusercontent.com/PolderLabsVOF/TimeTone/main/install.sh | sh -s -- --native
 ```
 
 For automation:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/DrB0rk/TimeTone/main/install.sh | \
+curl -fsSL https://raw.githubusercontent.com/PolderLabsVOF/TimeTone/main/install.sh | \
   TIMETONE_ADMIN_PASSWORD='use-a-long-unique-password' \
   TIMEKEEP_TIMEZONE='Europe/Amsterdam' TIMETONE_PORT=3000 \
   sh -s -- --docker --non-interactive
@@ -177,7 +177,7 @@ and protect the file as confidential attendance data.
 ## Development
 
 ```bash
-git clone https://github.com/DrB0rk/TimeTone.git
+git clone https://github.com/PolderLabsVOF/TimeTone.git
 cd TimeTone/web
 cp .env.example .env
 deno install --allow-scripts=npm:better-sqlite3

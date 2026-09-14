@@ -6,7 +6,7 @@ For a supported self-hosted installation, run the latest interactive installer
 directly from GitHub:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/DrB0rk/TimeTone/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/PolderLabsVOF/TimeTone/main/install.sh | sh
 ```
 
 It downloads the repository into `./TimeTone`, asks whether to use Docker or a

@@ -148,7 +148,7 @@ export async function requestDeviceSync(formData: FormData) {
 export async function requestFirmwareUpdate(formData: FormData) {
   await requireAuth();
   const id = z.string().uuid().parse(formData.get("id"));
-  const response = await fetch("https://api.github.com/repos/DrB0rk/TimeTone/releases/latest", { headers: { Accept: "application/vnd.github+json", "User-Agent": "TimeTone-dashboard" }, signal: AbortSignal.timeout(10000), cache: "no-store" });
+  const response = await fetch("https://api.github.com/repos/PolderLabsVOF/TimeTone/releases/latest", { headers: { Accept: "application/vnd.github+json", "User-Agent": "TimeTone-dashboard" }, signal: AbortSignal.timeout(10000), cache: "no-store" });
   if (!response.ok) throw new Error("Unable to check GitHub releases");
   const release = await response.json() as { tag_name?: string; assets?: Array<{ name?: string; browser_download_url?: string }> };
   const version = String(release.tag_name || "").replace(/^v/, "");

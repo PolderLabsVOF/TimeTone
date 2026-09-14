@@ -6,7 +6,7 @@ STAGE=${2:?staging directory required}
 TAG=${3:?release tag required}
 ARCHIVE="$STAGE/release.tar.gz"
 IMAGE_ARCHIVE="$STAGE/timetone-docker.tar.gz"
-IMAGE_URL="https://github.com/DrB0rk/TimeTone/releases/download/$TAG/timetone-docker.tar.gz"
+IMAGE_URL="https://github.com/PolderLabsVOF/TimeTone/releases/download/$TAG/timetone-docker.tar.gz"
 EXTRACTED="$STAGE/source"
 STATUS_FILE=/host/web/.timetone-update-status.json
 write_status() {

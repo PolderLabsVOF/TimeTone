@@ -191,7 +191,7 @@ export default async function DevicesPage() {
 
 async function getLatestFirmwareRelease() {
   try {
-    const response = await fetch("https://api.github.com/repos/DrB0rk/TimeTone/releases/latest", { headers: { Accept: "application/vnd.github+json", "User-Agent": "TimeTone-dashboard" }, signal: AbortSignal.timeout(5000), cache: "no-store" });
+    const response = await fetch("https://api.github.com/repos/PolderLabsVOF/TimeTone/releases/latest", { headers: { Accept: "application/vnd.github+json", "User-Agent": "TimeTone-dashboard" }, signal: AbortSignal.timeout(5000), cache: "no-store" });
     if (!response.ok) return null;
     const release = await response.json() as { tag_name?: string; assets?: Array<{ name?: string }> };
     const version = String(release.tag_name || "").replace(/^v/, "");

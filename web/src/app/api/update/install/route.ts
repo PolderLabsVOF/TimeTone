@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { requireAuth } from "@/lib/auth";
 
 export const runtime = "nodejs";
-const repository = "DrB0rk/TimeTone";
+const repository = "PolderLabsVOF/TimeTone";
 
 function statusPath() {
   // Docker updates are run by a short-lived sidecar because recreating the

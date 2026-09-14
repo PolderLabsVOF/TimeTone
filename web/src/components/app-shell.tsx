@@ -73,7 +73,7 @@ export function AppShell(
         </nav>
         <div className="px-6 pb-3 text-[11px] font-semibold tracking-wide text-white/55">TimeTone v{version}</div>
         <form action={logout} className="border-t border-white/10 p-4">
-          <a href="https://github.com/DrB0rk/TimeTone/issues/new/choose" target="_blank" rel="noreferrer" className="mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/60 transition hover:bg-white/8 hover:text-white">
+          <a href="https://github.com/PolderLabsVOF/TimeTone/issues/new/choose" target="_blank" rel="noreferrer" className="mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/60 transition hover:bg-white/8 hover:text-white">
             <MessageSquarePlus className="size-4" />Feedback
           </a>
           <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/60 transition hover:bg-white/8 hover:text-white">
@@ -109,7 +109,7 @@ export function AppShell(
             operational
           </div>
           <span className="ml-auto rounded-lg border border-black/8 px-2 py-1 text-[11px] font-semibold tracking-wide text-black/45 dark:border-white/10 dark:text-white/55 lg:hidden">v{version}</span>
-          <a href="https://github.com/DrB0rk/TimeTone/issues/new/choose" target="_blank" rel="noreferrer" className="ml-2 rounded-lg p-2 text-black/45 transition hover:bg-black/5 hover:text-black dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white sm:hidden" aria-label="Send feedback">
+          <a href="https://github.com/PolderLabsVOF/TimeTone/issues/new/choose" target="_blank" rel="noreferrer" className="ml-2 rounded-lg p-2 text-black/45 transition hover:bg-black/5 hover:text-black dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white sm:hidden" aria-label="Send feedback">
             <MessageSquarePlus className="size-4" />
           </a>
           <button onClick={toggleTheme} className="ml-3 grid size-9 place-items-center rounded-xl border border-black/10 bg-white text-black/60 transition duration-200 hover:-translate-y-0.5 hover:shadow-md dark:border-white/10 dark:bg-white/8 dark:text-white/75" aria-label="Toggle color theme">
