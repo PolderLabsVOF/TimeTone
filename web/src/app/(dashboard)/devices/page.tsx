@@ -6,6 +6,54 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getDevices } from "@/lib/db";
 
+type TerminalStatusIconName = "online" | "offline" | "connecting" | "syncing" | "retrying";
+
+const terminalStatusLegend: Array<{
+  icon: TerminalStatusIconName;
+  label: string;
+  description: string;
+  color: string;
+}> = [
+  { icon: "online", label: "Online", description: "The terminal can reach TimeTone and is ready for entries.", color: "text-emerald-600" },
+  { icon: "offline", label: "Offline", description: "Wi-Fi is disconnected. The terminal keeps trying to reconnect.", color: "text-black/45 dark:text-white/45" },
+  { icon: "connecting", label: "Connecting", description: "The terminal is connecting to Wi-Fi or signing in to the server.", color: "text-amber-600" },
+  { icon: "syncing", label: "Syncing", description: "Employees and terminal settings are being refreshed.", color: "text-sky-700" },
+  { icon: "retrying", label: "Retrying", description: "A request failed; queued entries stay safe and send on the next attempt.", color: "text-red-600" },
+];
+
+function TerminalStatusIcon({ name }: { name: TerminalStatusIconName }) {
+  if (name === "offline") {
+    return (
+      <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <circle cx="12" cy="12" r="7" />
+        <path d="m7 7 10 10" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (name === "syncing") {
+    return (
+      <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+        <circle cx="12" cy="12" r="7" strokeDasharray="23 10" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (name === "retrying") {
+    return (
+      <svg viewBox="0 0 24 24" className="size-5" fill="currentColor" aria-hidden="true">
+        <rect x="6.5" y="6.5" width="11" height="11" rx="2.5" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" className="size-5" fill="currentColor" aria-hidden="true">
+      <circle cx="12" cy="12" r="5.5" />
+    </svg>
+  );
+}
+
 export default async function DevicesPage() {
   // Server-render timestamp used only for the five-minute health threshold.
   // eslint-disable-next-line react-hooks/purity
@@ -162,27 +210,47 @@ export default async function DevicesPage() {
           })}
         </div>
         <div className="grid h-fit gap-6">
-        <div className="rounded-2xl bg-[#17211b] p-6 text-white">
-          <div className="flex items-center gap-3">
-            <span className="grid size-10 place-items-center rounded-xl bg-[#d8ff62] text-[#17211b]">
-              <Plus className="size-5" />
-            </span>
+          <div className="rounded-2xl bg-[#17211b] p-6 text-white">
+            <div className="flex items-center gap-3">
+              <span className="grid size-10 place-items-center rounded-xl bg-[#d8ff62] text-[#17211b]">
+                <Plus className="size-5" />
+              </span>
+              <div>
+                <h2 className="font-semibold">Register terminal</h2>
+                <p className="text-xs text-white/40">
+                  Pair terminals from their setup page
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 space-y-3 text-sm text-white/65">
+              <p>1. Join the terminal’s <span className="font-medium text-white">TimeTone</span> setup Wi-Fi.</p>
+              <p>2. Enter this server URL in the setup page and save.</p>
+              <p>3. The new terminal appears here automatically for approval.</p>
+              <div className="rounded-xl bg-white/8 p-3 text-xs text-white/45">
+                No device token is required. Each terminal creates its own secure credential.
+              </div>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-black/6 bg-white p-5 dark:border-white/10 dark:bg-[#18231c]">
             <div>
-              <h2 className="font-semibold">Register terminal</h2>
-              <p className="text-xs text-white/40">
-                Pair terminals from their setup page
-              </p>
+              <p className="text-[11px] font-semibold uppercase tracking-[.16em] text-black/35 dark:text-white/45">Terminal guide</p>
+              <h2 className="mt-1 font-semibold dark:text-white">Status indicators</h2>
+              <p className="mt-1 text-xs leading-5 text-black/45 dark:text-white/50">The icon in the terminal header shows what its connection is doing.</p>
+            </div>
+            <div className="mt-4 divide-y divide-black/6 dark:divide-white/10">
+              {terminalStatusLegend.map((status) => (
+                <div key={status.icon} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                  <span className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-[#eef0eb] dark:bg-white/10 ${status.color}`}>
+                    <TerminalStatusIcon name={status.icon} />
+                  </span>
+                  <div>
+                    <p className="text-sm font-medium dark:text-white">{status.label}</p>
+                    <p className="mt-0.5 text-xs leading-5 text-black/45 dark:text-white/50">{status.description}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-          <div className="mt-6 space-y-3 text-sm text-white/65">
-            <p>1. Join the terminal’s <span className="font-medium text-white">TimeTone</span> setup Wi-Fi.</p>
-            <p>2. Enter this server URL in the setup page and save.</p>
-            <p>3. The new terminal appears here automatically for approval.</p>
-            <div className="rounded-xl bg-white/8 p-3 text-xs text-white/45">
-              No device token is required. Each terminal creates its own secure credential.
-            </div>
-          </div>
-        </div>
         </div>
       </div>
     </>
