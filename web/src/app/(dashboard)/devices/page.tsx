@@ -1,6 +1,6 @@
 import { formatDistanceToNow } from "date-fns";
-import { Cpu, Pencil, Plus, SlidersHorizontal } from "lucide-react";
-import { approveDevice, rejectDevice, renameDevice, requestDeviceSync, requestFirmwareUpdate, saveDeviceSettings } from "@/app/actions";
+import { Cpu, Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
+import { approveDevice, deleteDevice, rejectDevice, renameDevice, requestDeviceSync, requestFirmwareUpdate, saveDeviceSettings } from "@/app/actions";
 import { PageHeading } from "@/components/page-heading";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -142,6 +142,16 @@ export default async function DevicesPage() {
                     </form>
                   </div>
                 )}
+                <div className="mt-5 border-t border-black/6 pt-4">
+                  <button type="button" popoverTarget={`delete-${device.id}`} popoverTargetAction="toggle" className="inline-flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm font-medium text-red-700 transition hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-400">
+                    <Trash2 className="size-4" />Delete device
+                  </button>
+                  <div id={`delete-${device.id}`} popover="auto" className="fixed inset-0 m-auto w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-red-200 bg-white p-5 shadow-xl shadow-black/10" style={{ margin: "auto" }}>
+                    <h3 className="font-semibold">Delete {device.name}?</h3>
+                    <p className="mt-1 text-sm leading-5 text-black/55">This removes the terminal and its device event history. Recorded time entries are kept.</p>
+                    <form action={deleteDevice} className="mt-5 flex gap-2"><input type="hidden" name="id" value={device.id} /><Button type="submit" className="flex-1 bg-red-600 text-white hover:bg-red-700">Delete device</Button><button type="button" popoverTarget={`delete-${device.id}`} popoverTargetAction="hide" className="h-9 rounded-lg border border-black/10 px-3 text-sm font-medium hover:bg-black/[.03]">Cancel</button></form>
+                  </div>
+                </div>
               </div>
             );
           })}

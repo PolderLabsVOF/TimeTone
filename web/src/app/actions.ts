@@ -101,6 +101,19 @@ export async function rejectDevice(formData: FormData) {
   revalidatePath("/devices");
 }
 
+export async function deleteDevice(formData: FormData) {
+  await requireAuth();
+  const id = z.string().uuid().parse(formData.get("id"));
+  db.transaction(() => {
+    if (!db.prepare("SELECT 1 FROM devices WHERE id = ?").get(id)) throw new Error("Device not found");
+    db.prepare("DELETE FROM device_events WHERE device_id = ?").run(id);
+    db.prepare("DELETE FROM devices WHERE id = ?").run(id);
+  })();
+  revalidatePath("/devices");
+  revalidatePath("/events");
+  revalidatePath("/");
+}
+
 export async function renameDevice(formData: FormData) {
   await requireAuth();
   const id = z.string().uuid().parse(formData.get("id"));
