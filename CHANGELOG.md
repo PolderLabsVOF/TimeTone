@@ -3,7 +3,7 @@
 All notable TimeTone releases are documented here. Versions follow
 [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
-## [0.3.5-dev] - 2026-09-14
+## [0.3.6-dev] - 2026-09-14
 
 - Add a custom accessible date picker for manual time entries and dashboard filters.
 - Add a full 24-hour quarter-hour time picker for manual time entries.
@@ -11,6 +11,7 @@ All notable TimeTone releases are documented here. Versions follow
 - Fix terminal stability for connected event uploads, reduce display flicker, and add safety for persisted state.
 - Explain the terminal's five connection status icons on the Devices page.
 - Start native installations automatically after reboot through a systemd user service, and enable the Docker daemon for Docker installs.
+- Use a system-level service for root-run native installs, including Debian LXC containers without a user D-Bus session.
 
 ## [0.3.3] - 2026-09-14
 

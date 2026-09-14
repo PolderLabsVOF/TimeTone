@@ -13,19 +13,28 @@ run_root() {
 }
 
 native_service_file() {
-  printf '%s/.config/systemd/user/%s' "${HOME:-$(getent passwd "$(id -un)" | cut -d: -f6)}" "$NATIVE_SERVICE_NAME"
+  if [ "$(id -u)" -eq 0 ]; then
+    printf '/etc/systemd/system/%s' "$NATIVE_SERVICE_NAME"
+  else
+    printf '%s/.config/systemd/user/%s' "${HOME:-$(getent passwd "$(id -un)" | cut -d: -f6)}" "$NATIVE_SERVICE_NAME"
+  fi
+}
+
+native_service_ctl() {
+  if [ "$(id -u)" -eq 0 ]; then systemctl "$@"; else systemctl --user "$@"; fi
 }
 
 native_service_available() {
   command -v systemctl >/dev/null 2>&1 || return 1
   [ -f "$(native_service_file)" ] || return 1
-  systemctl --user cat "$NATIVE_SERVICE_NAME" >/dev/null 2>&1
+  native_service_ctl cat "$NATIVE_SERVICE_NAME" >/dev/null 2>&1
 }
 
 install_native_service() {
   NODE_BIN=$(command -v node)
   SERVICE_FILE=$(native_service_file)
   SERVICE_DIR=$(dirname "$SERVICE_FILE")
+  if [ "$(id -u)" -eq 0 ]; then SERVICE_TARGET=multi-user.target; else SERVICE_TARGET=default.target; fi
   mkdir -p "$SERVICE_DIR"
   cat > "$SERVICE_FILE" <<EOF
 [Unit]
@@ -43,16 +52,24 @@ Environment=HOSTNAME=0.0.0.0
 Environment=NODE_ENV=production
 StandardOutput=append:$ROOT_DIR/web/timetone.log
 StandardError=append:$ROOT_DIR/web/timetone.log
+$(if [ "$(id -u)" -eq 0 ]; then printf '%s\n' 'User=root'; fi)
 ExecStart=$NODE_BIN server.js
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30
 
 [Install]
-WantedBy=default.target
+WantedBy=$SERVICE_TARGET
 EOF
   if ! command -v systemctl >/dev/null 2>&1; then
     printf '%s\n' "Warning: systemd is unavailable; native TimeTone cannot be started automatically after reboot." >&2
+    return 0
+  fi
+  if [ "$(id -u)" -eq 0 ]; then
+    if ! systemctl daemon-reload || ! systemctl enable "$NATIVE_SERVICE_NAME"; then
+      printf '%s\n' "Warning: could not enable the native TimeTone systemd service; automatic startup is not configured." >&2
+      return 0
+    fi
     return 0
   fi
   if command -v loginctl >/dev/null 2>&1; then run_root loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || true; fi
@@ -64,8 +81,8 @@ EOF
 
 start_native_server() {
   if native_service_available; then
-    systemctl --user enable --now "$NATIVE_SERVICE_NAME"
-    SERVICE_PID=$(systemctl --user show "$NATIVE_SERVICE_NAME" --property=MainPID --value 2>/dev/null || true)
+    native_service_ctl enable --now "$NATIVE_SERVICE_NAME"
+    SERVICE_PID=$(native_service_ctl show "$NATIVE_SERVICE_NAME" --property=MainPID --value 2>/dev/null || true)
     case "$SERVICE_PID" in ''|0|*[!0-9]*) ;; *) printf '%s\n' "$SERVICE_PID" > "$WEB_DIR/timetone.pid" ;; esac
     return
   fi
@@ -77,7 +94,7 @@ start_native_server() {
 }
 
 stop_native_service() {
-  if native_service_available; then systemctl --user stop "$NATIVE_SERVICE_NAME" || true; fi
+  if native_service_available; then native_service_ctl stop "$NATIVE_SERVICE_NAME" || true; fi
 }
 
 resolve_release() {
@@ -497,7 +514,7 @@ show_status() {
     [ -n "$HEALTH_CURL_ERROR" ] && printf '  Health error: %s\n' "$HEALTH_CURL_ERROR"
     if [ "$MODE" = native ]; then
       if native_service_available; then
-        printf '  systemd service: %s (PID %s)\n' "$(systemctl --user is-active "$NATIVE_SERVICE_NAME" 2>/dev/null || printf 'not running')" "$(systemctl --user show "$NATIVE_SERVICE_NAME" --property=MainPID --value 2>/dev/null || printf 'unknown')"
+        printf '  systemd service: %s (PID %s)\n' "$(native_service_ctl is-active "$NATIVE_SERVICE_NAME" 2>/dev/null || printf 'not running')" "$(native_service_ctl show "$NATIVE_SERVICE_NAME" --property=MainPID --value 2>/dev/null || printf 'unknown')"
       elif [ -f "$WEB_DIR/timetone.pid" ]; then
         printf '  PID file: %s (state: %s)\n' "$(sed -n '1p' "$WEB_DIR/timetone.pid")" "$(ps -p "$(sed -n '1p' "$WEB_DIR/timetone.pid")" -o stat= 2>/dev/null || printf 'not running')"
       else
