@@ -480,6 +480,25 @@ static int warm_clock_connection(void)
     return status;
 }
 
+// The push_events() overflow corrupted the heap and rebooted with no evidence,
+// so log the headroom the health pass actually has (and the heap, which is the
+// other budget this task competes for) rather than discovering the next one by
+// crash. uxTaskGetStackHighWaterMark() is the smallest free stack ever seen, in
+// words. Rate-limited: the health pass can run as often as every few seconds.
+#define TK_HEALTH_LOG_INTERVAL_US (60 * 1000000LL)
+static void log_task_headroom(void)
+{
+    static int64_t s_last_log_us;
+    int64_t now_us = esp_timer_get_time();
+    if (now_us - s_last_log_us < TK_HEALTH_LOG_INTERVAL_US) return;
+    s_last_log_us = now_us;
+    ESP_LOGI(TAG, "api task stack headroom %u of %u bytes; heap free %u, minimum %u",
+             (unsigned)(uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t)),
+             (unsigned)TK_API_TASK_STACK,
+             (unsigned)esp_get_free_heap_size(),
+             (unsigned)esp_get_minimum_free_heap_size());
+}
+
 static int heartbeat(void)
 {
     int pending;
@@ -561,6 +580,7 @@ static void api_task(void *argument)
             int health_status = heartbeat();
             if (health_status == 200) {
                 s_sync_failures = 0;
+                log_task_headroom();
                 next_health = now + seconds_to_ticks(config->sync_interval_seconds, 5);
                 // heartbeat() sets this when the dashboard explicitly requests
                 // a sync. Consume it in this pass so a stable connection picks

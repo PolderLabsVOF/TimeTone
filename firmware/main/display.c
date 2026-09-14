@@ -443,6 +443,40 @@ static bool touch_is_pressed(void)
 
 static void tick_cb(void *argument) { lv_tick_inc(2); }
 
+#if LV_USE_LOG
+// LVGL reports its own failures through this callback. Without it — or
+// CONFIG_LV_LOG_PRINTF — lv_log_add() formats the message and drops it, which
+// is why the LV_ASSERT_MALLOC that hangs the terminal (LV_ASSERT_HANDLER is
+// `while(1)`) printed nothing at all. Which levels reach here is decided by
+// CONFIG_LV_USE_LOG / CONFIG_LV_LOG_LEVEL in sdkconfig.defaults.
+static void lvgl_log_print(lv_log_level_t level, const char *buffer)
+{
+    if (level == LV_LOG_LEVEL_ERROR) ESP_LOGE(TAG, "lvgl: %s", buffer);
+    else if (level == LV_LOG_LEVEL_WARN) ESP_LOGW(TAG, "lvgl: %s", buffer);
+    else ESP_LOGI(TAG, "lvgl: %s", buffer);
+}
+#endif
+
+// The LVGL pool is a fixed 64 KiB (CONFIG_LV_MEM_SIZE_KILOBYTES) that cannot
+// grow (CONFIG_LV_MEM_POOL_EXPAND_SIZE_KILOBYTES=0) and whose allocation
+// failure path is a silent spin, not a reboot. Sample it so pool exhaustion is
+// a trend in the log rather than a freeze, and report the stack headroom of
+// the task that both drives LVGL and holds its heaviest frames.
+// Caller holds s_lvgl_lock.
+static void log_lvgl_health(void)
+{
+    static int64_t s_last_log_us;
+    int64_t now_us = esp_timer_get_time();
+    if (now_us - s_last_log_us < 60 * 1000000LL) return;
+    s_last_log_us = now_us;
+    lv_mem_monitor_t mon;
+    lv_mem_monitor(&mon);
+    ESP_LOGI(TAG, "lvgl pool %u/%u bytes used (%u%%), frag %u%%, largest free block %u; lvgl task stack headroom %u bytes",
+             (unsigned)(mon.total_size - mon.free_size), (unsigned)mon.total_size,
+             (unsigned)mon.used_pct, (unsigned)mon.frag_pct, (unsigned)mon.free_biggest_size,
+             (unsigned)(uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t)));
+}
+
 static void lvgl_task(void *argument)
 {
     while (true) {
@@ -455,6 +489,7 @@ static void lvgl_task(void *argument)
         }
         _lock_acquire(&s_lvgl_lock);
         uint32_t wait = lv_timer_handler();
+        log_lvgl_health();
         _lock_release(&s_lvgl_lock);
         int64_t idle_us = esp_timer_get_time() - s_last_activity_us;
         uint16_t screen_off_timeout = tk_config_get()->screen_off_timeout_seconds;
@@ -2280,6 +2315,11 @@ esp_err_t tk_display_init(void)
     // the palette render as its complementary colors (Coral becomes cyan,
     // Ocean becomes yellow, etc.), so leave inversion disabled.
     ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel, false)); ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel, false)); ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel, false, false)); ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel, true));
+#if LV_USE_LOG
+    // Registered before lv_init() so nothing LVGL complains about early is
+    // dropped on the floor (see lvgl_log_print).
+    lv_log_register_print_cb(lvgl_log_print);
+#endif
     lv_init();
     s_display = lv_display_create(H_RES, V_RES);
     size_t buffer_size = H_RES * 30 * sizeof(lv_color16_t);
