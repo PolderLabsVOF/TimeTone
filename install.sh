@@ -77,6 +77,36 @@ stop_before_update() {
   stop_port_processes "$(sed -n 's/^TIMETONE_PORT=//p' "$SCRIPT_DIR/web/.env" | head -n 1)"
 }
 
+# Palette and branded header are defined ahead of the update and first-install
+# branches below. Both of those branches `exec` a replacement process, so a
+# header defined or printed after them could never render before a download
+# starts. TIMETONE_HEADER_SHOWN is exported so the re-executed installer does
+# not print the header a second time.
+if [ -t 2 ] && [ "${TERM:-dumb}" != dumb ]; then
+  C_RESET=$(printf '\033[0m'); C_BOLD=$(printf '\033[1m'); C_DIM=$(printf '\033[2m'); C_GREEN=$(printf '\033[32m'); C_CYAN=$(printf '\033[36m'); C_YELLOW=$(printf '\033[33m'); C_RED=$(printf '\033[31m'); C_BLUE=$(printf '\033[34m'); C_MAGENTA=$(printf '\033[35m')
+else
+  C_RESET=""; C_BOLD=""; C_DIM=""; C_GREEN=""; C_CYAN=""; C_YELLOW=""; C_RED=""; C_BLUE=""; C_MAGENTA=""
+fi
+
+is_interactive_terminal() {
+  [ -t 2 ] && [ "${TERM:-dumb}" != dumb ]
+}
+
+show_installer_header() {
+  printf '\n%s%s    _____ _          _____%s\n' "$C_BOLD" "$C_CYAN" "$C_RESET" >&2
+  printf '%s%s   |_   _(_)_ __ ___|_   _|__  _ __   ___%s\n' "$C_BOLD" "$C_CYAN" "$C_RESET" >&2
+  printf '%s%s     | | | | '\''_ ` _ \ | |/ _ \| '\''_ \ / _ \%s\n' "$C_BOLD" "$C_BLUE" "$C_RESET" >&2
+  printf '%s%s     | | | | | | | | || | (_) | | | |  __/%s\n' "$C_BOLD" "$C_BLUE" "$C_RESET" >&2
+  printf '%s%s     |_| |_|_| |_| |_||_|\___/|_| |_|\___|%s\n' "$C_BOLD" "$C_CYAN" "$C_RESET" >&2
+  printf '%s%s                   T I M E T O N E%s\n' "$C_BOLD" "$C_GREEN" "$C_RESET" >&2
+  printf '%sOffice time, beautifully tracked.%s\n\n' "$C_DIM" "$C_RESET" >&2
+}
+
+if [ "${TIMETONE_HEADER_SHOWN:-}" != 1 ]; then
+  export TIMETONE_HEADER_SHOWN=1
+  show_installer_header
+fi
+
 # Re-running the same entrypoint against an existing installation is an
 # update, not a fresh install. Fetch the current source first, while keeping
 # the user's .env and persistent data in place.
@@ -175,26 +205,6 @@ FORCE=false
 UPDATE=false
 RESET_PASSWORD=false
 MODE=""
-if [ -t 2 ] && [ "${TERM:-dumb}" != dumb ]; then
-  C_RESET=$(printf '\033[0m'); C_BOLD=$(printf '\033[1m'); C_DIM=$(printf '\033[2m'); C_GREEN=$(printf '\033[32m'); C_CYAN=$(printf '\033[36m'); C_YELLOW=$(printf '\033[33m'); C_RED=$(printf '\033[31m'); C_BLUE=$(printf '\033[34m'); C_MAGENTA=$(printf '\033[35m')
-else
-  C_RESET=""; C_BOLD=""; C_DIM=""; C_GREEN=""; C_CYAN=""; C_YELLOW=""; C_RED=""; C_BLUE=""; C_MAGENTA=""
-fi
-
-is_interactive_terminal() {
-  [ -t 2 ] && [ "${TERM:-dumb}" != dumb ]
-}
-
-show_installer_header() {
-  printf '\n%s%s    _____ _          _____%s\n' "$C_BOLD" "$C_CYAN" "$C_RESET" >&2
-  printf '%s%s   |_   _(_)_ __ ___|_   _|__  _ __   ___%s\n' "$C_BOLD" "$C_CYAN" "$C_RESET" >&2
-  printf '%s%s     | | | | '\''_ ` _ \ | |/ _ \| '\''_ \ / _ \%s\n' "$C_BOLD" "$C_BLUE" "$C_RESET" >&2
-  printf '%s%s     | | | | | | | | || | (_) | | | |  __/%s\n' "$C_BOLD" "$C_BLUE" "$C_RESET" >&2
-  printf '%s%s     |_| |_|_| |_| |_||_|\___/|_| |_|\___|%s\n' "$C_BOLD" "$C_CYAN" "$C_RESET" >&2
-  printf '%s%s                   T I M E T O N E%s\n' "$C_BOLD" "$C_GREEN" "$C_RESET" >&2
-  printf '%sOffice time, beautifully tracked.%s\n\n' "$C_DIM" "$C_RESET" >&2
-}
-
 phase() {
   case "$1" in
     1/4) PHASE_BAR='[##------]'; PHASE_COLOR=$C_YELLOW ;;
@@ -252,7 +262,6 @@ show_install_plan() {
   phase "plan" "$PLAN_ACTION starts after the checks below."
 }
 
-show_installer_header
 for arg in "$@"; do
   case "$arg" in
     --non-interactive) NON_INTERACTIVE=true ;;
