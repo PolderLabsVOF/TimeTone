@@ -34,7 +34,12 @@ export function SettingsTabs({ defaultValue, tabs }: { defaultValue: string; tab
         })}
       </TabsList>
       {tabs.map((tab) => (
-        <TabsContent key={tab.value} value={tab.value} className="mt-5">
+        <TabsContent
+          key={tab.value}
+          value={tab.value}
+          keepMounted
+          className="mt-5"
+        >
           {tab.content}
         </TabsContent>
       ))}

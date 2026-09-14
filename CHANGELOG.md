@@ -20,6 +20,7 @@ All notable TimeTone releases are documented here. Versions follow
 - Restructure the Devices page into fleet summary, terminal cards, onboarding, and status guidance sections.
 - Restructure Settings into workspace summaries, grouped controls, a settings map, and separate security/migration/update areas.
 - Replace Settings anchor navigation with real keyboard-accessible tabbed sections; workspace fields remain associated with one shared save action across tabs.
+- Keep inactive Settings panels mounted so saving from Reports submits the complete workspace settings form.
 - Fix Settings tab strip sizing so labels and active/focus states are not clipped on narrow or wide layouts.
 - Overhaul the Who's here canvas with distributed node placement, independent drift, spacing forces, drag momentum, and keyboard movement.
 - Tone down the Who's here canvas with softer motion, quieter connections, smaller translucent nodes, and a calmer background.
