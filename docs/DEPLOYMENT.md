@@ -14,7 +14,10 @@ installation, then provide the password, timezone, and port. It creates
 never sends configuration or attendance data outside your host. Re-run it to
 rebuild after pulling an update; choose to keep the existing configuration when
 prompted. Native installs require Node.js 20.9+ and npm and write logs to
-`web/timetone.log`.
+`web/timetone.log`. The installer registers a systemd user service named
+`timetone.service`, enables user lingering, and starts it at boot. Inspect its
+status with `systemctl --user status timetone.service`; if the host does not
+run systemd, use Docker mode or arrange an equivalent service manager yourself.
 
 On Debian/Ubuntu, the installer can install missing system dependencies using
 `apt-get` (Docker Engine and Compose for Docker mode, Node.js 24 and npm for
