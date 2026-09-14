@@ -437,12 +437,15 @@ static esp_err_t upload_events(tk_event_t *events, char *response, tk_event_t *o
 // Owns the working set so every exit path from upload_events() frees it.
 //
 // Heap rather than file-scope statics on purpose: statics would spend the same
-// ~17 KiB permanently out of the ~57 KiB of DRAM that Wi-Fi, mbedTLS and every
-// task stack share at run time, while the heap cost here lasts only for the
-// duration of the upload. That 17 KiB peak is the same size as the 18 KiB
-// buffer fetch_config() already allocates on this task, and the two never
-// overlap. Allocation failure is survivable: the queue is durable in NVS and
-// the caller retries on the next healthy heartbeat.
+// ~17 KiB permanently out of the ~198 KiB runtime heap (_heap_start to
+// _heap_end, 197.9 KiB) that Wi-Fi, mbedTLS and every task stack share at run
+// time, while the heap cost here lasts only for the duration of the upload.
+// The 12,288-byte stack raise above costs about 6% of that heap, not the ~21%
+// the "DRAM Remain" line in `idf.py size` implies: that figure is measured
+// inside the dram0_0_seg linker fence, not against the heap. That 17 KiB peak
+// is the same size as the 18 KiB buffer fetch_config() already allocates on
+// this task, and the two never overlap. Allocation failure is survivable: the
+// queue is durable in NVS and the caller retries on the next healthy heartbeat.
 static esp_err_t push_events(void)
 {
     const size_t events_size = TK_MAX_EVENTS * sizeof(tk_event_t);
