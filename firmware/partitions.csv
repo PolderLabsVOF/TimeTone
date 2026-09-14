@@ -4,3 +4,10 @@ otadata,    data, ota,     0x11000, 8K,
 phy_init,   data, phy,     0x13000, 4K,
 ota_0,      app,  ota_0,   0x20000, 1856K,
 ota_1,      app,  ota_1,           ,       1856K,
+# 128K at the end of the 4MB flash (256K is free after ota_1, 128K stays
+# unallocated). An ELF core dump holds every task's stack, TCB and register
+# dump: the api stack alone is 20K and the ota stack 8K on top of the IDF
+# tasks, so 64K is too tight to rely on. CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH
+# writes here and overwrites the previous dump; read it back with
+# `idf.py coredump-info` (or coredump-debug) against build/timetone.elf.
+coredump,   data, coredump,0x3C0000, 128K,
