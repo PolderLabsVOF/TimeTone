@@ -22,6 +22,7 @@ All notable TimeTone releases are documented here. Versions follow
 - Replace Settings anchor navigation with real keyboard-accessible tabbed sections; workspace fields remain associated with one shared save action across tabs.
 - Fix Settings tab strip sizing so labels and active/focus states are not clipped on narrow or wide layouts.
 - Overhaul the Who's here canvas with distributed node placement, independent drift, spacing forces, drag momentum, and keyboard movement.
+- Tone down the Who's here canvas with softer motion, quieter connections, smaller translucent nodes, and a calmer background.
 
 ## [0.3.3] - 2026-09-14
 

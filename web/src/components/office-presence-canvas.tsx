@@ -67,7 +67,7 @@ export function OfficePresenceCanvas({ people }: { people: Person[] }) {
       canvas.height = height * dpr;
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      const radius = Math.min(26, Math.max(19, width / 18));
+      const radius = Math.min(24, Math.max(18, width / 19));
       if (!laidOut) {
         const positions = layoutNodes(nodes.length, width, height, radius);
         nodes.forEach((node, index) => {
@@ -90,15 +90,8 @@ export function OfficePresenceCanvas({ people }: { people: Person[] }) {
       previous = time;
       const seconds = time / 1000;
       context.clearRect(0, 0, width, height);
-      context.fillStyle = "#0e1610";
+      context.fillStyle = "#121a15";
       context.fillRect(0, 0, width, height);
-
-      context.fillStyle = "rgba(216,255,98,.09)";
-      for (let x = 18; x < width; x += 28) {
-        for (let y = 18; y < height; y += 28) {
-          context.fillRect(x, y, 1, 1);
-        }
-      }
 
       for (let a = 0; a < nodes.length; a++) {
         for (let b = a + 1; b < nodes.length; b++) {
@@ -117,8 +110,8 @@ export function OfficePresenceCanvas({ people }: { people: Person[] }) {
             second.vx += pushX;
             second.vy += pushY;
           }
-          if (distance < 170) {
-            context.strokeStyle = `rgba(216,255,98,${(1 - distance / 170) * 0.18})`;
+          if (distance < 135) {
+            context.strokeStyle = `rgba(216,255,98,${(1 - distance / 135) * 0.07})`;
             context.lineWidth = 1;
             context.beginPath();
             context.moveTo(first.x, first.y);
@@ -129,23 +122,23 @@ export function OfficePresenceCanvas({ people }: { people: Person[] }) {
       }
 
       for (const node of nodes) {
-        const wanderX = Math.cos(seconds * node.drift + node.phase) * 0.014;
-        const wanderY = Math.sin(seconds * node.drift * 0.83 + node.phase * 1.7) * 0.014;
+        const wanderX = Math.cos(seconds * node.drift + node.phase) * 0.008;
+        const wanderY = Math.sin(seconds * node.drift * 0.83 + node.phase * 1.7) * 0.008;
         node.vx += wanderX * step;
         node.vy += wanderY * step;
 
         const edgeMargin = node.r + 16;
-        if (node.x < edgeMargin) node.vx += 0.016 * step;
-        if (node.x > width - edgeMargin) node.vx -= 0.016 * step;
-        if (node.y < edgeMargin) node.vy += 0.016 * step;
-        if (node.y > height - edgeMargin - 14) node.vy -= 0.016 * step;
+        if (node.x < edgeMargin) node.vx += 0.009 * step;
+        if (node.x > width - edgeMargin) node.vx -= 0.009 * step;
+        if (node.y < edgeMargin) node.vy += 0.009 * step;
+        if (node.y > height - edgeMargin - 14) node.vy -= 0.009 * step;
 
         node.vx *= 0.992;
         node.vy *= 0.992;
         const speed = Math.hypot(node.vx, node.vy);
-        if (speed > 0.82) {
-          node.vx = node.vx / speed * 0.82;
-          node.vy = node.vy / speed * 0.82;
+        if (speed > 0.42) {
+          node.vx = node.vx / speed * 0.42;
+          node.vy = node.vy / speed * 0.42;
         }
         if (node !== dragging) {
           node.x += node.vx * step;
@@ -155,27 +148,29 @@ export function OfficePresenceCanvas({ people }: { people: Person[] }) {
         node.y = Math.max(node.r, Math.min(height - node.r - 14, node.y));
 
         context.beginPath();
-        context.fillStyle = `${node.color}22`;
-        context.arc(node.x, node.y, node.r + 9, 0, Math.PI * 2);
+        context.fillStyle = `${node.color}12`;
+        context.arc(node.x, node.y, node.r + 6, 0, Math.PI * 2);
         context.fill();
         if (node === selected) {
           context.beginPath();
-          context.strokeStyle = "rgba(216,255,98,.8)";
-          context.lineWidth = 2;
-          context.arc(node.x, node.y, node.r + 7, 0, Math.PI * 2);
+          context.strokeStyle = "rgba(216,255,98,.55)";
+          context.lineWidth = 1.5;
+          context.arc(node.x, node.y, node.r + 5, 0, Math.PI * 2);
           context.stroke();
         }
         context.beginPath();
         context.fillStyle = node.color;
+        context.globalAlpha = 0.82;
         context.arc(node.x, node.y, node.r, 0, Math.PI * 2);
         context.fill();
+        context.globalAlpha = 1;
         context.fillStyle = "#17211b";
         context.font = "700 12px system-ui";
         context.textAlign = "center";
         context.textBaseline = "middle";
         context.fillText(node.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase(), node.x, node.y + 1);
-        context.fillStyle = "rgba(237,245,238,.72)";
-        context.font = "500 10px system-ui";
+        context.fillStyle = "rgba(237,245,238,.58)";
+        context.font = "500 9px system-ui";
         const label = node.name.length > 16 ? `${node.name.slice(0, 15)}…` : node.name;
         context.fillText(label, node.x, Math.min(height - 5, node.y + node.r + 12));
       }
@@ -199,8 +194,8 @@ export function OfficePresenceCanvas({ people }: { people: Person[] }) {
     const pointerMove = (event: PointerEvent) => {
       if (!dragging) return;
       const { x, y } = point(event);
-      dragging.vx = (x - lastX) * 0.35;
-      dragging.vy = (y - lastY) * 0.35;
+      dragging.vx = (x - lastX) * 0.22;
+      dragging.vy = (y - lastY) * 0.22;
       dragging.x = x;
       dragging.y = y;
       lastX = x;
@@ -244,5 +239,5 @@ export function OfficePresenceCanvas({ people }: { people: Person[] }) {
   }, [people]);
 
   if (!people.length) return <div className="grid h-56 place-items-center rounded-2xl border border-dashed border-white/15 text-center text-sm text-white/45">The nodes come alive when someone checks in.</div>;
-  return <canvas ref={canvasRef} role="application" tabIndex={0} aria-label="Interactive office presence map; drag a person to move them, or focus the map and use arrow keys" className="mt-5 h-56 w-full cursor-grab touch-none select-none rounded-2xl bg-[#0e1610] outline-none focus-visible:ring-2 focus-visible:ring-[#d8ff62]/70 active:cursor-grabbing" />;
+  return <canvas ref={canvasRef} role="application" tabIndex={0} aria-label="Interactive office presence map; drag a person to move them, or focus the map and use arrow keys" className="mt-5 h-56 w-full cursor-grab touch-none select-none rounded-2xl bg-[#121a15] outline-none focus-visible:ring-2 focus-visible:ring-[#d8ff62]/55 active:cursor-grabbing" />;
 }
