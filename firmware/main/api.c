@@ -88,7 +88,13 @@ static int request(const char *path, esp_http_client_method_t method, const char
         // Clock requests may be the first HTTPS request after wake. Allow the
         // full DNS/TCP/TLS setup to finish on a busy Wi-Fi network, while
         // keeping the limit bounded when the route is genuinely unavailable.
-        .timeout_ms = strstr(path, "/heartbeat") ? 8000 : strstr(path, "/clock") ? 8000 : strstr(path, "/events") ? 10000 : 15000,
+        // Interactive clock requests fail fast because the durable queue will
+        // retry them; background sync gets a little more time to recover.
+        .timeout_ms = strstr(path, "/clock") ? 4000 : strstr(path, "/heartbeat") ? 8000 : strstr(path, "/events") ? 10000 : 15000,
+        // Keep HTTPS socket and TLS progress non-blocking. A synchronous
+        // mbedTLS handshake can occupy the API task long enough to starve the
+        // idle task and trip the ESP task watchdog when the server is down.
+        .is_async = strncmp(config->server_url, "https://", 8) == 0,
         .keep_alive_enable = true,
         .event_handler = http_event,
         .user_data = &buffer,
@@ -110,7 +116,17 @@ static int request(const char *path, esp_http_client_method_t method, const char
     esp_http_client_set_header(client, "User-Agent", "TimeTone-Terminal/" TK_FIRMWARE_VERSION);
     esp_http_client_set_post_field(client, body, body ? strlen(body) : 0);
     int64_t started_us = esp_timer_get_time();
-    esp_err_t err = esp_http_client_perform(client);
+    esp_err_t err;
+    int64_t deadline_us = esp_timer_get_time() + ((int64_t)client_config.timeout_ms + 1000) * 1000;
+    do {
+        err = esp_http_client_perform(client);
+        if (err != ESP_ERR_HTTP_EAGAIN) break;
+        // Async mode returns while the socket/TLS state machine is waiting on
+        // I/O. Yield between steps so the idle task, LVGL, and Wi-Fi stack can
+        // run while a connection is being established.
+        vTaskDelay(1);
+    } while (esp_timer_get_time() < deadline_us);
+    if (err == ESP_ERR_HTTP_EAGAIN) err = ESP_ERR_TIMEOUT;
     // A 401 response can make esp_http_client return ESP_ERR_NOT_SUPPORTED
     // before ESP_OK (it attempts an auth challenge). Preserve the HTTP status
     // so the pairing handshake can still run for a new token.
