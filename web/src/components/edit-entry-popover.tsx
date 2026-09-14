@@ -38,11 +38,12 @@ export function EditEntryPopover(props: {
         Edit
       </PopoverTrigger>
       <PopoverPortal>
-        <PopoverPositioner side="bottom" align="end" sideOffset={6} collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }}>
+        <PopoverPositioner side="bottom" align="end" sideOffset={6} collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }} collisionPadding={16}>
           <PopoverPopup
             role="dialog"
             aria-label="Edit time entry"
             className="max-h-[calc(100vh-2rem)] w-[min(21rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-black/10 bg-white p-4 text-left shadow-xl shadow-black/10"
+            style={{ maxHeight: "min(calc(100vh - 2rem), var(--available-height, 100vh - 2rem))" } as React.CSSProperties}
           >
             <div className="mb-3">
               <p className="text-sm font-semibold">Edit time entry</p>
