@@ -209,7 +209,7 @@ static lv_obj_t *s_main_screen, *s_status_screen, *s_setup_screen,
 // header instance so theme tokens apply uniformly.
 static lv_obj_t *s_header;
 // Keypad page widgets.
-static lv_obj_t *s_clock_label, *s_status_label, *s_pin_label, *s_count_label,
+static lv_obj_t *s_status_label, *s_pin_label, *s_count_label,
                 *s_brand_label;
 static lv_obj_t *s_gear_btn, *s_gear_icon;
 // Status dot: a persistent 12x12 container in the header plus three overlay
@@ -616,25 +616,6 @@ static void clear_keypad_event(lv_event_t *event)
     status_set_token("Your four colours", TK_TOKEN_MUTED);
 }
 
-static void clock_timer(lv_timer_t *timer)
-{
-    // lv_label_set_text() frees and reallocates the label's text on every call
-    // (lv_label.c, lv_label_set_text: no content comparison) out of the fixed
-    // 64 KiB LVGL pool (CONFIG_LV_MEM_SIZE_KILOBYTES), which cannot grow
-    // (CONFIG_LV_MEM_POOL_EXPAND_SIZE_KILOBYTES=0), and it invalidates the
-    // label. At 1 Hz that is permanent churn on a text that changes once a
-    // minute, so skip the write when the text is unchanged.
-    static char s_clock_text[8];
-    time_t now; struct tm local;
-    time(&now); localtime_r(&now, &local);
-    char text[24];
-    if (tk_time_is_valid()) strftime(text, sizeof(text), "%H:%M", &local);
-    else strlcpy(text, "--:--", sizeof(text));
-    if (!s_clock_label || strcmp(text, s_clock_text) == 0) return;
-    strlcpy(s_clock_text, text, sizeof(s_clock_text));
-    lv_label_set_text(s_clock_label, text);
-}
-
 // ============================================================================
 // Phase 2 motion helpers (spec §8). All run under the LVGL task context
 // (caller holds s_lvgl_lock); none take the lock.
@@ -989,7 +970,7 @@ static void show_status_screen(void)
 static void settings_back_event(lv_event_t *event) { show_main_screen(); }
 // The Sync-now value label is written by every network-state push, which the
 // api task emits on each health pass, so a redundant write is steady churn in
-// the fixed LVGL pool (see clock_timer). Funnel every write through here so the
+// the fixed LVGL pool. Funnel every write through here so the
 // "same text" comparison always sees the last text actually shown.
 static void sync_value_set_text(const char *text)
 {
@@ -1543,7 +1524,6 @@ static void build_clock_ui(void)
     lv_obj_add_flag(s_count_label, LV_OBJ_FLAG_HIDDEN);
 
     status_set_token("Your four colours", TK_TOKEN_MUTED); update_pin_label();
-    lv_timer_create(clock_timer, 1000, NULL); clock_timer(NULL);
     // Phase 2 will replace this timer with LVGL animations on the dot.
     lv_timer_create(sync_animation_timer, 420, NULL);
 }
