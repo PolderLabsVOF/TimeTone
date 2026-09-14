@@ -9,8 +9,56 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Validate release version
-        run: test "v$(cat VERSION)" = "$GITHUB_REF_NAME"
+        run: |
+          version_file="v$(cat VERSION)"
+          if [ "$version_file" = "$GITHUB_REF_NAME" ]; then
+            echo "Version gate passed: VERSION file ($version_file) matches tag ($GITHUB_REF_NAME)"
+          else
+            echo "::error::Version mismatch: VERSION file says '$version_file' but tag is '$GITHUB_REF_NAME'" >&2
+            echo "::error::Update VERSION (and web/package.json, firmware/main/timekeep.h) to '$GITHUB_REF_NAME' before tagging." >&2
+            exit 1
+          fi
+      - name: Detect release channel
+        run: |
+          case "$GITHUB_REF_NAME" in
+            *-*) PRERELEASE=true ;;
+            *)   PRERELEASE=false ;;
+          esac
+          if [ "$PRERELEASE" = true ]; then
+            echo "Tag '$GITHUB_REF_NAME' carries a '-' suffix: publishing as a GitHub pre-release."
+          else
+            echo "Tag '$GITHUB_REF_NAME' has no suffix: publishing as a stable release."
+          fi
+          echo "PRERELEASE=$PRERELEASE" >> "$GITHUB_ENV"
+      - name: Verify tag lane
+        run: |
+          set -eu
+          if [ "$PRERELEASE" = true ]; then
+            lane=beta
+          else
+            lane=main
+          fi
+          echo "Tag '$GITHUB_REF_NAME' must be reachable from origin/$lane."
+          # fetch-depth: 0 is documented to fetch all branches, but the exact
+          # remote-tracking ref layout is not guaranteed. Fetch the lane branch
+          # explicitly if it is missing; this must be a full fetch so that
+          # merge-base can still walk the ancestry path.
+          if ! git rev-parse --verify --quiet "refs/remotes/origin/$lane" >/dev/null; then
+            echo "origin/$lane not present locally; fetching it."
+            git fetch --no-tags origin "+refs/heads/$lane:refs/remotes/origin/$lane" >/dev/null 2>&1 || true
+          fi
+          if ! git rev-parse --verify --quiet "refs/remotes/origin/$lane" >/dev/null; then
+            echo "::error::Branch 'origin/$lane' does not exist; cannot verify tag lane. Stable tags must be reachable from main, release-candidate tags from beta." >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/$lane"; then
+            echo "::error::Tagged commit $GITHUB_SHA is not reachable from origin/$lane. Promote via PR into $lane before tagging." >&2
+            exit 1
+          fi
+          echo "Tag is reachable from origin/$lane."
       - name: Build standalone runtime
         run: docker build -f scripts/Dockerfile.release --target artifact --output type=local,dest=/tmp/runtime web
       - name: Build Docker image
@@ -40,7 +88,7 @@ jobs:
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
-            gh release edit "$GITHUB_REF_NAME" --draft=false
+            gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease="$PRERELEASE"
           else
-            gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "TimeTone $GITHUB_REF_NAME" --generate-notes
+            gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "TimeTone $GITHUB_REF_NAME" --generate-notes --prerelease="$PRERELEASE"
           fi
