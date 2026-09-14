@@ -18,6 +18,17 @@ type Props = {
   id?: string;
   defaultValue?: string;
   required?: boolean;
+  /**
+   * Tone of the surface this field is placed on. Same prop and values as `DatePicker`, so
+   * both components read the same way. The fallback is "dark" only because the one caller
+   * that omits it is the dashboard's manual-entry card (`entries/page.tsx`, `bg-[#17211b]`).
+   */
+  surface?: "light" | "dark";
+  /**
+   * @deprecated Boolean spelling of `surface="light"`, still passed by
+   * `edit-entry-popover.tsx`. Use `surface` instead: `black`/`white` are inverting theme
+   * tokens, so the class names alone do not tell you the rendered tone.
+   */
   light?: boolean;
   size?: "sm" | "md";
 };
@@ -31,7 +42,7 @@ function splitDateTime(value?: string) {
   return { date, time: time.slice(0, 5) };
 }
 
-export function TimeEntryDateField({ label, name, id, defaultValue, required, light, size = "md" }: Props) {
+export function TimeEntryDateField({ label, name, id, defaultValue, required, surface, light, size = "md" }: Props) {
   const initial = splitDateTime(defaultValue);
   const generatedId = useId();
   const fieldId = id || `${name}-${generatedId}`;
@@ -88,14 +99,22 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, li
     setOpen(false);
   };
   const hour = time ? time.slice(0, 2) : "09";
+  const tone = surface ?? (light ? "light" : "dark");
+  const isLight = tone === "light";
   // The same field renders as "Clock in" or "Clock out", so the error must follow the label.
   const missingTimeMessage = `Choose a ${label.toLowerCase().replaceAll(" ", "-")} time.`;
   const controlHeight = size === "sm" ? "h-9" : "h-10";
-  const inputClass = light
+  // The date trigger next to this one is named "<label> date, ...", so naming this one for
+  // the time it sets keeps the two distinct for voice control instead of both starting
+  // "<label>, ...". Reading the name out of the visible text keeps the on-screen value
+  // ("09:30" / "Set time") inside the accessible name, as WCAG 2.5.3 requires.
+  const timeLabel = time || "Set time";
+  const timeTriggerLabel = `${label} time, ${timeLabel}`;
+  const inputClass = isLight
     ? "border-black/10 bg-white text-black"
     : "border-white/15 bg-white/8 text-white [color-scheme:dark]";
-  const mutedClass = light ? "text-black/45" : "text-white/45";
-  const panelClass = light
+  const mutedClass = isLight ? "text-black/45" : "text-white/45";
+  const panelClass = isLight
     ? "border-black/10 bg-white text-black shadow-xl shadow-black/10"
     : "border-white/15 bg-[#1d2a22] text-white shadow-xl shadow-black/25";
   const triggerTimeClass =
@@ -114,7 +133,7 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, li
             value={date}
             onChange={(v) => { setDate(v); if (v) setMissingDate(false); }}
             placeholder="Select date"
-            surface={light ? "light" : "dark"}
+            surface={tone}
             size={size}
             aria-label={label}
           />
@@ -126,10 +145,10 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, li
             aria-expanded={open}
             aria-controls={panelId}
             aria-haspopup="dialog"
-            aria-label={`${label}, ${time || "no time set"}`}
+            aria-label={timeTriggerLabel}
             className={`${controlHeight} w-full ${triggerTimeClass}`}
           >
-            <span className={time ? "tabular-nums" : mutedClass}>{time || "Set time"}</span>
+            <span className={time ? "tabular-nums" : mutedClass}>{timeLabel}</span>
             <ChevronDown className={`size-4 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
           </PopoverTrigger>
           <PopoverPortal>
@@ -154,14 +173,14 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, li
                 </div>
                 <div className="mt-3 grid grid-cols-4 gap-1" role="group" aria-label="Quarter-hour">
                   {MINUTES.map((minute) => (
-                    <button key={minute} type="button" onClick={() => chooseTime(hour, minute)} className={`h-9 rounded-md text-sm tabular-nums transition focus:ring-2 focus:ring-[#d8ff62]/55 ${time === `${hour}:${minute}` ? "bg-[#d8ff62] font-semibold text-[#17211b]" : light ? "bg-black/[.035] hover:bg-black/[.07]" : "bg-white/8 hover:bg-white/14"}`}>
+                    <button key={minute} type="button" onClick={() => chooseTime(hour, minute)} className={`h-9 rounded-md text-sm tabular-nums transition focus:ring-2 focus:ring-[#d8ff62]/55 ${time === `${hour}:${minute}` ? "bg-[#d8ff62] font-semibold text-[#17211b]" : isLight ? "bg-black/[.035] hover:bg-black/[.07]" : "bg-white/8 hover:bg-white/14"}`}>
                       {hour}:{minute}
                     </button>
                   ))}
                 </div>
                 <div className="mt-3 grid grid-cols-6 gap-1" role="group" aria-label="Hour">
                   {HOURS.map((value) => (
-                    <button key={value} type="button" onClick={() => setTime(`${value}:${time ? time.slice(3) : "00"}`)} className={`h-8 rounded-md text-xs tabular-nums transition focus:ring-2 focus:ring-[#d8ff62]/55 ${hour === value ? "bg-[#d8ff62] font-semibold text-[#17211b]" : light ? "hover:bg-black/[.06]" : "hover:bg-white/12"}`}>{value}</button>
+                    <button key={value} type="button" onClick={() => setTime(`${value}:${time ? time.slice(3) : "00"}`)} className={`h-8 rounded-md text-xs tabular-nums transition focus:ring-2 focus:ring-[#d8ff62]/55 ${hour === value ? "bg-[#d8ff62] font-semibold text-[#17211b]" : isLight ? "hover:bg-black/[.06]" : "hover:bg-white/12"}`}>{value}</button>
                   ))}
                 </div>
                 {time && <button type="button" onClick={clearTime} className={`mt-3 text-xs underline-offset-2 transition hover:underline focus:underline ${mutedClass}`}>Clear time</button>}

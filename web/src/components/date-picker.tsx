@@ -34,10 +34,13 @@ export type DatePickerProps = {
   required?: boolean;
   placeholder?: string;
   /**
-   * Surface the picker is placed on. Every dashboard surface is white, so "light"
-   * is the default; "dark" keeps the picker legible on a dark card.
+   * Tone of the surface the picker is placed on. The dashboard is neither all dark nor all
+   * light: its popovers are white, while its cards are dark (`bg-[#17211b]`, e.g. the entries
+   * manual-entry card). `black`/`white` here are inverting theme tokens, so `bg-white`
+   * computes dark in dark mode and the class name alone does not tell you the rendered tone.
+   * Callers therefore state the tone instead of relying on a default.
    */
-  surface?: "light" | "dark";
+  surface: "light" | "dark";
   disabled?: boolean;
   size?: "sm" | "md";
   className?: string;
@@ -68,7 +71,7 @@ export function DatePicker({
   name,
   required,
   placeholder = "Select date",
-  surface = "light",
+  surface,
   disabled,
   size = "md",
   className,
@@ -81,13 +84,15 @@ export function DatePicker({
   const [open, setOpen] = React.useState(false);
   const [focused, setFocused] = React.useState<Date | null>(null);
   const [rawText, setRawText] = React.useState(value);
-  const dayBtnByIso = React.useRef<Map<string, HTMLButtonElement>>(new Map());
+  const dayCellByIso = React.useRef<Map<string, HTMLDivElement>>(new Map());
 
   const formattedValue = normalized ? format(normalized, "d MMM yyyy") : null;
   const labelText = formattedValue ?? placeholder;
-  // The caller's aria-label names the field. Appending the value keeps the chosen
-  // date in the trigger's accessible name instead of hiding it behind aria-label.
-  const triggerLabel = ariaLabel ? `${ariaLabel}, ${formattedValue ?? "no date selected"}` : undefined;
+  // The date and time fields sit side by side and both start with the same field label
+  // ("Clock in, ..."), which makes voice control ambiguous, so the date one names itself.
+  // Naming it from the visible text keeps the on-screen value ("14 Sep 2026" / "Select
+  // date") inside the accessible name, as WCAG 2.5.3 requires.
+  const triggerLabel = ariaLabel ? `${ariaLabel} date, ${labelText}` : undefined;
 
   const prevOpenRef = React.useRef(open);
   React.useEffect(() => {
@@ -102,7 +107,11 @@ export function DatePicker({
     const prev = prevValueRef.current;
     prevValueRef.current = value;
     if (prev === value || !normalized) return;
+    // Move both the visible month and the roving tabindex, so a date set from outside the
+    // grid (the "Now" button) leaves the selected day as the first Tab stop, rather than
+    // that same day number in whatever month happened to be on screen.
     setCursor(normalized);
+    setFocused(normalized);
   }, [value, normalized]);
 
   const monthStart = startOfMonth(cursor);
@@ -159,13 +168,17 @@ export function DatePicker({
     event.preventDefault();
     setFocused(next);
     if (!isSameMonth(next, cursor)) setCursor(next);
-    requestAnimationFrame(() => dayBtnByIso.current.get(isoOf(next!))?.focus());
+    requestAnimationFrame(() => dayCellByIso.current.get(isoOf(next!))?.focus());
   };
 
+  // Moves the roving focus when the popover opens and when the arrow keys walk within the
+  // month on screen. A month change must not depend on this deferred callback: it replaces
+  // every cell, so by the time it runs the target may already be detached. The new cell
+  // claims focus itself in its ref callback (see the grid below).
   React.useEffect(() => {
     if (!open) return;
     const iso = focusedIso;
-    requestAnimationFrame(() => dayBtnByIso.current.get(iso)?.focus());
+    requestAnimationFrame(() => dayCellByIso.current.get(iso)?.focus());
   }, [open, focusedIso]);
 
   const triggerHeight = size === "sm" ? "h-9" : "h-10";
@@ -242,66 +255,75 @@ export function DatePicker({
                 </button>
               </div>
 
-              <table
+              {/*
+                The cells are the focusable elements and carry the gridcell role and the
+                selected state themselves, as the APG grid pattern requires. A `td` inside a
+                `role="grid"` table is already a gridcell, so keeping the interactive element
+                as a nested button would nest a gridcell in a gridcell.
+              */}
+              <div
                 role="grid"
                 aria-label="Choose date"
-                className="mt-3 w-full border-collapse"
+                className="mt-3 w-full"
                 onKeyDown={onGridKeyDown}
               >
-                <thead>
-                  <tr>
-                    {WEEKDAYS.map((d) => (
-                      <th key={d} scope="col" className={cn("py-1 text-center text-[11px] font-medium", isLight ? "text-black/45" : "text-white/45")}>{d}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {Array.from({ length: 6 }, (_, week) => (
-                    <tr key={week}>
-                      {days.slice(week * 7, week * 7 + 7).map((d) => {
-                        const iso = isoOf(d);
-                        const isSelected = value !== "" && normalized !== null && isSameDay(d, normalized);
-                        const isToday = isSameDay(d, today);
-                        const outside = !isSameMonth(d, cursor);
-                        const isFocused = iso === focusedIso;
-                        return (
-                          <td
-                            key={iso}
-                            role="gridcell"
-                            aria-selected={isSelected}
-                            className="p-0.5 text-center"
-                          >
-                            <button
-                              ref={(el) => {
-                                if (el) dayBtnByIso.current.set(iso, el);
-                                else dayBtnByIso.current.delete(iso);
-                              }}
-                              type="button"
-                              tabIndex={isFocused ? 0 : -1}
-                              aria-label={format(d, "EEEE, d MMMM yyyy")}
-                              aria-current={isToday ? "date" : undefined}
-                              onClick={() => selectDay(d)}
-                              onFocus={() => setFocused(d)}
-                              className={cn(
-                                "grid size-8 place-items-center rounded-md text-sm tabular-nums transition focus:ring-2 focus:ring-[#d8ff62]/55",
-                                outside && (isLight ? "text-black/35" : "text-white/35"),
-                                isToday && !isSelected && "ring-1 ring-[#d8ff62]",
-                                isSelected
-                                  ? "bg-[#d8ff62] font-semibold text-[#17211b]"
-                                  : isLight
-                                    ? "hover:bg-black/[.06]"
-                                    : "hover:bg-white/10",
-                              )}
-                            >
-                              {String(d.getDate())}
-                            </button>
-                          </td>
-                        );
-                      })}
-                    </tr>
+                <div role="row" className="grid grid-cols-7 px-0.5">
+                  {WEEKDAYS.map((d) => (
+                    <div key={d} role="columnheader" className={cn("py-1 text-center text-[11px] font-medium", isLight ? "text-black/45" : "text-white/45")}>{d}</div>
                   ))}
-                </tbody>
-              </table>
+                </div>
+                {Array.from({ length: 6 }, (_, week) => (
+                  <div key={week} role="row" className="grid grid-cols-7 px-0.5 py-0.5">
+                    {days.slice(week * 7, week * 7 + 7).map((d) => {
+                      const iso = isoOf(d);
+                      const isSelected = value !== "" && normalized !== null && isSameDay(d, normalized);
+                      const isToday = isSameDay(d, today);
+                      const outside = !isSameMonth(d, cursor);
+                      const isFocused = iso === focusedIso;
+                      return (
+                        <div
+                          key={iso}
+                          ref={(el) => {
+                            if (!el) {
+                              dayCellByIso.current.delete(iso);
+                              return;
+                            }
+                            dayCellByIso.current.set(iso, el);
+                            // A month change replaces every cell, so the cell that had focus is
+                            // detached long before the deferred focus callback above runs, and the
+                            // popover's focus restore then sees focus on the body and hands it to the
+                            // dialog container, which has no grid key handler — leaving only the
+                            // first PageUp/PageDown working. Claiming focus here, inside the commit
+                            // that mounts the new cell, keeps DOM focus on the roving day. The guard
+                            // keeps this a rescue: opening the popover and arrow-key moves leave
+                            // focus on a cell, so they keep their own behaviour.
+                            if (isFocused && document.activeElement === document.body) el.focus();
+                          }}
+                          role="gridcell"
+                          tabIndex={isFocused ? 0 : -1}
+                          aria-selected={isSelected}
+                          aria-label={format(d, "EEEE, d MMMM yyyy")}
+                          aria-current={isToday ? "date" : undefined}
+                          onClick={() => selectDay(d)}
+                          onFocus={() => setFocused(d)}
+                          className={cn(
+                            "grid size-8 cursor-pointer place-items-center rounded-md text-sm tabular-nums transition focus:ring-2 focus:ring-[#d8ff62]/55",
+                            outside && (isLight ? "text-black/35" : "text-white/35"),
+                            isToday && !isSelected && "ring-1 ring-[#d8ff62]",
+                            isSelected
+                              ? "bg-[#d8ff62] font-semibold text-[#17211b]"
+                              : isLight
+                                ? "hover:bg-black/[.06]"
+                                : "hover:bg-white/10",
+                          )}
+                        >
+                          {String(d.getDate())}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
 
               <div className={cn("mt-3 border-t pt-3", isLight ? "border-black/10" : "border-white/10")}>
                 <label className={cn("text-xs", isLight ? "text-black/45" : "text-white/45")} htmlFor={id ? `${id}-fallback` : undefined}>
