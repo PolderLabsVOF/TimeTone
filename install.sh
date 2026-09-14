@@ -176,9 +176,9 @@ UPDATE=false
 RESET_PASSWORD=false
 MODE=""
 if [ -t 2 ] && [ "${TERM:-dumb}" != dumb ]; then
-  C_RESET=$(printf '\033[0m'); C_BOLD=$(printf '\033[1m'); C_DIM=$(printf '\033[2m'); C_GREEN=$(printf '\033[32m'); C_CYAN=$(printf '\033[36m'); C_YELLOW=$(printf '\033[33m'); C_RED=$(printf '\033[31m'); C_BLUE=$(printf '\033[34m')
+  C_RESET=$(printf '\033[0m'); C_BOLD=$(printf '\033[1m'); C_DIM=$(printf '\033[2m'); C_GREEN=$(printf '\033[32m'); C_CYAN=$(printf '\033[36m'); C_YELLOW=$(printf '\033[33m'); C_RED=$(printf '\033[31m'); C_BLUE=$(printf '\033[34m'); C_MAGENTA=$(printf '\033[35m')
 else
-  C_RESET=""; C_BOLD=""; C_DIM=""; C_GREEN=""; C_CYAN=""; C_YELLOW=""; C_RED=""; C_BLUE=""
+  C_RESET=""; C_BOLD=""; C_DIM=""; C_GREEN=""; C_CYAN=""; C_YELLOW=""; C_RED=""; C_BLUE=""; C_MAGENTA=""
 fi
 
 is_interactive_terminal() {
@@ -186,14 +186,26 @@ is_interactive_terminal() {
 }
 
 show_installer_header() {
-  printf '\n%s%s+--------------------+%s\n' "$C_BOLD" "$C_CYAN" "$C_RESET" >&2
-  printf '%s%s|  TimeTone installer  |%s\n' "$C_BOLD" "$C_CYAN" "$C_RESET" >&2
-  printf '%s%s+--------------------+%s\n' "$C_BOLD" "$C_CYAN" "$C_RESET" >&2
+  printf '\n%s%s    _____ _          _____%s\n' "$C_BOLD" "$C_CYAN" "$C_RESET" >&2
+  printf '%s%s   |_   _(_)_ __ ___|_   _|__  _ __   ___%s\n' "$C_BOLD" "$C_CYAN" "$C_RESET" >&2
+  printf '%s%s     | | | | '\''_ ` _ \ | |/ _ \| '\''_ \ / _ \%s\n' "$C_BOLD" "$C_BLUE" "$C_RESET" >&2
+  printf '%s%s     | | | | | | | | || | (_) | | | |  __/%s\n' "$C_BOLD" "$C_BLUE" "$C_RESET" >&2
+  printf '%s%s     |_| |_|_| |_| |_||_|\___/|_| |_|\___|%s\n' "$C_BOLD" "$C_CYAN" "$C_RESET" >&2
+  printf '%s%s                   T I M E T O N E%s\n' "$C_BOLD" "$C_GREEN" "$C_RESET" >&2
   printf '%sOffice time, beautifully tracked.%s\n\n' "$C_DIM" "$C_RESET" >&2
 }
 
 phase() {
-  printf '%s[%s]%s %s\n' "$C_CYAN" "$1" "$C_RESET" "$2" >&2
+  case "$1" in
+    1/4) PHASE_BAR='[##------]'; PHASE_COLOR=$C_YELLOW ;;
+    2/4) PHASE_BAR='[####----]'; PHASE_COLOR=$C_CYAN ;;
+    3/4) PHASE_BAR='[######--]'; PHASE_COLOR=$C_BLUE ;;
+    4/4) PHASE_BAR='[########]'; PHASE_COLOR=$C_GREEN ;;
+    plan) PHASE_BAR='[ ready ]'; PHASE_COLOR=$C_MAGENTA ;;
+    start) PHASE_BAR='[  go!  ]'; PHASE_COLOR=$C_GREEN ;;
+    *) PHASE_BAR="[ $1 ]"; PHASE_COLOR=$C_CYAN ;;
+  esac
+  printf '%s%s%s %s\n' "$PHASE_COLOR" "$PHASE_BAR" "$C_RESET" "$2" >&2
 }
 
 run_with_spinner() {
@@ -234,9 +246,9 @@ run_with_spinner() {
 show_install_plan() {
   PLAN_ACTION=$1
   PLAN_CURRENT=$2
-  printf '%sTarget version:%s %s%s%s\n' "$C_DIM" "$C_RESET" "$C_BOLD" "$RELEASE_TAG" "$C_RESET" >&2
-  [ -z "$PLAN_CURRENT" ] || printf '%sCurrent version:%s %s\n' "$C_DIM" "$C_RESET" "$PLAN_CURRENT" >&2
-  printf '%sMode:%s %s\n\n' "$C_DIM" "$C_RESET" "$MODE" >&2
+  printf '%sTarget version%s  %s%s%s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$RELEASE_TAG" "$C_RESET" >&2
+  [ -z "$PLAN_CURRENT" ] || printf '%sCurrent version%s %s\n' "$C_YELLOW" "$C_RESET" "$PLAN_CURRENT" >&2
+  printf '%sMode%s            %s\n\n' "$C_CYAN" "$C_RESET" "$MODE" >&2
   phase "plan" "$PLAN_ACTION starts after the checks below."
 }
 
