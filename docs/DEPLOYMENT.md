@@ -85,6 +85,18 @@ directly; the updater preserves `.env` and the SQLite data directory, builds the
 new version, and restarts the service. Keep the previous install directory as
 your rollback copy until you have verified the update.
 
+For testing unreleased code, run the installer from the `dev` branch with
+`--dev --native`. It downloads the current branch (or the SHA in
+`TIMETONE_SOURCE_REF`) and builds the standalone runtime locally:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/PolderLabsVOF/TimeTone/dev/install.sh | sh -s -- --dev --native
+```
+
+The matching firmware image is retained as a CI artifact on the same dev
+commit. Download that artifact and use **Devices → USB firmware update**; this
+does not require a GitHub release.
+
 Docker installs show the available release but must be updated from the host:
 download the release, replace the checkout, and rerun `./install.sh --docker`
 (or run `docker compose up -d --build` in `web/`). Docker preserves the named

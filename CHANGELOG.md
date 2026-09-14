@@ -12,6 +12,8 @@ All notable TimeTone releases are documented here. Versions follow
 - Explain the terminal's five connection status icons on the Devices page.
 - Start native installations automatically after reboot through a systemd user service, and enable the Docker daemon for Docker installs.
 - Use a system-level service for root-run native installs, including Debian LXC containers without a user D-Bus session.
+- Prevent the terminal's idle HTTPS warm-up from exhausting heap before its configuration sync, and allow the first interactive HTTPS request enough time for DNS/TLS setup.
+- Add a `--dev` installer path that fetches a selected `dev` commit and builds the dashboard locally without publishing a release.
 
 ## [0.3.3] - 2026-09-14
 
