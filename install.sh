@@ -644,6 +644,15 @@ install_prebuilt_native() {
 build_dev_native_runtime() {
   phase "3/4" "Installing dev dependencies and building the native web runtime..."
   (cd "$WEB_DIR" && run_with_spinner "Installing dev dependencies" npm install --no-audit --no-fund && run_with_spinner "Building the dev web runtime" npm run build)
+  # Next's standalone output keeps static assets beside, not inside, the
+  # standalone directory. The native service starts from standalone/, so copy
+  # the assets into the layout expected by server.js before starting it.
+  mkdir -p "$WEB_DIR/.next/standalone/.next/static"
+  cp -a "$WEB_DIR/.next/static/." "$WEB_DIR/.next/standalone/.next/static/"
+  if [ -d "$WEB_DIR/public" ]; then
+    mkdir -p "$WEB_DIR/.next/standalone/public"
+    cp -a "$WEB_DIR/public/." "$WEB_DIR/.next/standalone/public/"
+  fi
   [ -f "$WEB_DIR/.next/standalone/server.js" ] || {
     printf '%s\n' "The dev build did not produce a standalone runtime." >&2; exit 1;
   }
