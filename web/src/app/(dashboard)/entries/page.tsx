@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TimeEntryDateField } from "@/components/time-entry-date-field";
 import { durationMinutes, formatDuration, roundDuration } from "@/lib/domain";
 import { getEmployees, getEntryChanges, getFilteredEntries, getSettings } from "@/lib/db";
 
@@ -145,7 +146,7 @@ export default async function EntriesPage({ searchParams }: { searchParams: Prom
                                   ))}
                                 </select>
                               </div>
-                              <DateField
+                              <TimeEntryDateField
                                 label="Clock in"
                                 name="clock_in"
                                 id={`clock-in-${entry.id}`}
@@ -153,7 +154,7 @@ export default async function EntriesPage({ searchParams }: { searchParams: Prom
                                 required
                                 light
                               />
-                              <DateField
+                              <TimeEntryDateField
                                 label="Clock out"
                                 name="clock_out"
                                 id={`clock-out-${entry.id}`}
@@ -221,8 +222,8 @@ export default async function EntriesPage({ searchParams }: { searchParams: Prom
                 ))}
               </select>
             </div>
-            <DateField label="Clock in" name="clock_in" required />
-            <DateField label="Clock out" name="clock_out" />
+            <TimeEntryDateField label="Clock in" name="clock_in" required />
+            <TimeEntryDateField label="Clock out" name="clock_out" />
             <div className="space-y-2">
               <Label htmlFor="note">Note</Label>
               <Input
@@ -243,33 +244,6 @@ export default async function EntriesPage({ searchParams }: { searchParams: Prom
     </>
   );
 }
-function DateField(
-  { label, name, id, required, defaultValue, light }: {
-    label: string;
-    name: string;
-    id?: string;
-    required?: boolean;
-    defaultValue?: string;
-    light?: boolean;
-  },
-) {
-  return (
-    <div className="space-y-2">
-      <Label htmlFor={id || name}>{label}</Label>
-      <Input
-        id={id || name}
-        name={name}
-        type="datetime-local"
-        required={required}
-        defaultValue={defaultValue}
-        className={light
-          ? "h-9 border-black/10 bg-white"
-          : "border-white/15 bg-white/8 scheme-dark"}
-      />
-    </div>
-  );
-}
-
 function toDateTimeLocal(value: string) {
   return format(new Date(value), "yyyy-MM-dd'T'HH:mm");
 }
