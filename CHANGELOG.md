@@ -16,6 +16,7 @@ All notable TimeTone releases are documented here. Versions follow
 - Add a `--dev` installer path that fetches a selected `dev` commit and builds the dashboard locally without publishing a release.
 - Package Next.js static and public assets into the native dev runtime so the dashboard is styled after a dev install.
 - Let users clear an entry's end time in the edit and manual-entry forms to save it as an open shift.
+- Reset the manual-entry form after a successful save and show a confirmation message.
 
 ## [0.3.3] - 2026-09-14
 
