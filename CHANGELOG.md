@@ -19,6 +19,7 @@ All notable TimeTone releases are documented here. Versions follow
 - Reset the manual-entry form after a successful save and show a confirmation message.
 - Restructure the Devices page into fleet summary, terminal cards, onboarding, and status guidance sections.
 - Restructure Settings into workspace summaries, grouped controls, a settings map, and separate security/migration/update areas.
+- Replace Settings anchor navigation with real keyboard-accessible tabbed sections; workspace fields remain associated with one shared save action across tabs.
 
 ## [0.3.3] - 2026-09-14
 
