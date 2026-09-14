@@ -17,6 +17,13 @@ resolve_release() {
   export TIMETONE_RELEASE_TAG="$RELEASE_TAG"
 }
 
+show_release_preview() {
+  PREVIEW_ACTION=$1
+  printf '\nTimeTone %s\n' "$PREVIEW_ACTION" >&2
+  printf '  Target version: %s\n' "$RELEASE_TAG" >&2
+  printf '  Release source: GitHub stable release\n\n' >&2
+}
+
 require_release_platform() {
   if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; then
     printf '%s\n' "Prebuilt web releases currently support Linux x86-64 only." >&2
@@ -82,9 +89,11 @@ if [ -f "$SCRIPT_DIR/web/.env" ] && [ "${TIMETONE_UPDATE_IN_PROGRESS:-}" != 1 ];
       resolve_release
       TMP_UPDATE=$(mktemp -d)
       trap 'rm -rf "$TMP_UPDATE"' EXIT HUP INT TERM
-      printf '%s\n' "Existing TimeTone installation detected — downloading the latest version…" >&2
+      show_release_preview "update"
+      printf '%s\n' "  [1/4] Downloading application source..." >&2
       curl -fsSL "https://codeload.github.com/DrB0rk/TimeTone/tar.gz/$SOURCE_REF?cachebust=$(date +%s%N)" -o "$TMP_UPDATE/timetone.tar.gz"
       mkdir -p "$TMP_UPDATE/source"
+      printf '%s\n' "  [2/4] Checking the downloaded source..." >&2
       tar -xzf "$TMP_UPDATE/timetone.tar.gz" -C "$TMP_UPDATE/source"
       NEW_SOURCE=$(find "$TMP_UPDATE/source" -mindepth 1 -maxdepth 1 -type d | head -n 1)
       [ -n "$NEW_SOURCE" ] || { printf '%s\n' "The update archive was empty." >&2; exit 1; }
@@ -92,6 +101,7 @@ if [ -f "$SCRIPT_DIR/web/.env" ] && [ "${TIMETONE_UPDATE_IN_PROGRESS:-}" != 1 ];
       INSTALLED_MODE=$(sed -n 's/^TIMETONE_INSTALL_MODE=//p' "$TMP_UPDATE/.env" | head -n 1)
       require_release_platform
       if [ "$INSTALLED_MODE" = native ]; then
+        printf '%s\n' "  [3/4] Downloading the native web runtime..." >&2
         curl -fsSL "https://github.com/DrB0rk/TimeTone/releases/download/$RELEASE_TAG/timetone-web.tar.gz" -o "$TMP_UPDATE/timetone-web.tar.gz"
         tar -tzf "$TMP_UPDATE/timetone-web.tar.gz" | grep -q 'web/.next/standalone/server.js' || {
           printf '%s\n' "Release is missing the prebuilt web runtime; current installation was not stopped." >&2
@@ -100,6 +110,7 @@ if [ -f "$SCRIPT_DIR/web/.env" ] && [ "${TIMETONE_UPDATE_IN_PROGRESS:-}" != 1 ];
       fi
       # All downloads and validation happen while the current service is still
       # available. Stop it only once the replacement is ready to be applied.
+      printf '%s\n' "  [4/4] Applying the verified update..." >&2
       stop_before_update
       cp -a "$NEW_SOURCE"/. "$SCRIPT_DIR"/
       cp "$TMP_UPDATE/.env" "$SCRIPT_DIR/web/.env"
@@ -126,6 +137,7 @@ fi
 if [ ! -f "$SCRIPT_DIR/web/package.json" ]; then
   command -v curl >/dev/null 2>&1 || { printf '%s\n' "curl is required for one-command installation." >&2; exit 1; }
   resolve_release
+  show_release_preview "installation"
   INSTALL_DIR=${TIMETONE_INSTALL_DIR:-"$(pwd)/TimeTone"}
   [ -d "$INSTALL_DIR/web" ] || {
     TMP_DIR=$(mktemp -d)
@@ -134,7 +146,7 @@ if [ ! -f "$SCRIPT_DIR/web/package.json" ]; then
     REQUEST_NATIVE=false
     for arg in "$@"; do [ "$arg" = "--native" ] && REQUEST_NATIVE=true; done
     if [ "$REQUEST_NATIVE" = true ]; then
-      printf '%s\n' "Downloading the latest prebuilt TimeTone web release…"
+      printf '%s\n' "  [1/2] Downloading the prebuilt native web runtime..."
       if curl -fsSL "https://github.com/DrB0rk/TimeTone/releases/download/$RELEASE_TAG/timetone-web.tar.gz" -o "$TMP_DIR/timetone-web.tar.gz"; then
         tar -xzf "$TMP_DIR/timetone-web.tar.gz" -C "$INSTALL_DIR"
       else
@@ -142,7 +154,7 @@ if [ ! -f "$SCRIPT_DIR/web/package.json" ]; then
         exit 1
       fi
     else
-      printf '%s\n' "Downloading the latest TimeTone source release…"
+      printf '%s\n' "  [1/2] Downloading the application source..."
       curl -fsSL "https://codeload.github.com/DrB0rk/TimeTone/tar.gz/$SOURCE_REF?cachebust=$(date +%s)" -o "$TMP_DIR/timetone.tar.gz"
       mkdir -p "$TMP_DIR/source"
       tar -xzf "$TMP_DIR/timetone.tar.gz" -C "$TMP_DIR/source"
@@ -152,6 +164,7 @@ if [ ! -f "$SCRIPT_DIR/web/package.json" ]; then
   }
   # Always refresh the entrypoint, including when a previous failed install
   # already created INSTALL_DIR. This avoids rerunning a stale cached script.
+  printf '%s\n' "  [2/2] Starting the TimeTone installer..."
   curl -fsSL "https://raw.githubusercontent.com/DrB0rk/TimeTone/main/install.sh?cachebust=$(date +%s%N)" -o "$INSTALL_DIR/install.sh"
   exec sh "$INSTALL_DIR/install.sh" "$@"
 fi
@@ -162,13 +175,71 @@ FORCE=false
 UPDATE=false
 RESET_PASSWORD=false
 MODE=""
-if [ -t 2 ] || [ -r /dev/tty ]; then
+if [ -t 2 ] && [ "${TERM:-dumb}" != dumb ]; then
   C_RESET=$(printf '\033[0m'); C_BOLD=$(printf '\033[1m'); C_DIM=$(printf '\033[2m'); C_GREEN=$(printf '\033[32m'); C_CYAN=$(printf '\033[36m'); C_YELLOW=$(printf '\033[33m'); C_RED=$(printf '\033[31m'); C_BLUE=$(printf '\033[34m')
 else
   C_RESET=""; C_BOLD=""; C_DIM=""; C_GREEN=""; C_CYAN=""; C_YELLOW=""; C_RED=""; C_BLUE=""
 fi
-printf '\n%s%sTimeTone%s  %sOffice time, beautifully tracked.%s\n' "$C_BOLD" "$C_CYAN" "$C_RESET" "$C_DIM" "$C_RESET" >&2
-printf '%s────────────────────────────────────────%s\n' "$C_DIM" "$C_RESET" >&2
+
+is_interactive_terminal() {
+  [ -t 2 ] && [ "${TERM:-dumb}" != dumb ]
+}
+
+show_installer_header() {
+  printf '\n%s%s+--------------------+%s\n' "$C_BOLD" "$C_CYAN" "$C_RESET" >&2
+  printf '%s%s|  TimeTone installer  |%s\n' "$C_BOLD" "$C_CYAN" "$C_RESET" >&2
+  printf '%s%s+--------------------+%s\n' "$C_BOLD" "$C_CYAN" "$C_RESET" >&2
+  printf '%sOffice time, beautifully tracked.%s\n\n' "$C_DIM" "$C_RESET" >&2
+}
+
+phase() {
+  printf '%s[%s]%s %s\n' "$C_CYAN" "$1" "$C_RESET" "$2" >&2
+}
+
+run_with_spinner() {
+  TASK_LABEL=$1
+  shift
+  if ! is_interactive_terminal; then
+    "$@"
+    return
+  fi
+  TASK_LOG=$(mktemp "${TMPDIR:-/tmp}/timetone-task.XXXXXX")
+  "$@" >"$TASK_LOG" 2>&1 &
+  TASK_PID=$!
+  TASK_FRAME=0
+  while kill -0 "$TASK_PID" 2>/dev/null; do
+    case "$TASK_FRAME" in
+      0) TASK_GLYPH='|' ;;
+      1) TASK_GLYPH='/' ;;
+      2) TASK_GLYPH='-' ;;
+      *) TASK_GLYPH='\' ;;
+    esac
+    printf '\r%s[%s] %s%s' "$C_CYAN" "$TASK_GLYPH" "$TASK_LABEL" "$C_RESET" >&2
+    TASK_FRAME=$(((TASK_FRAME + 1) % 4))
+    sleep 0.12
+  done
+  if wait "$TASK_PID"; then
+    printf '\r%s[ok]%s %s\n' "$C_GREEN" "$C_RESET" "$TASK_LABEL" >&2
+    rm -f "$TASK_LOG"
+    return
+  fi
+  TASK_STATUS=$?
+  printf '\r%s[failed]%s %s\n' "$C_RED" "$C_RESET" "$TASK_LABEL" >&2
+  cat "$TASK_LOG" >&2
+  rm -f "$TASK_LOG"
+  return "$TASK_STATUS"
+}
+
+show_install_plan() {
+  PLAN_ACTION=$1
+  PLAN_CURRENT=$2
+  printf '%sTarget version:%s %s%s%s\n' "$C_DIM" "$C_RESET" "$C_BOLD" "$RELEASE_TAG" "$C_RESET" >&2
+  [ -z "$PLAN_CURRENT" ] || printf '%sCurrent version:%s %s\n' "$C_DIM" "$C_RESET" "$PLAN_CURRENT" >&2
+  printf '%sMode:%s %s\n\n' "$C_DIM" "$C_RESET" "$MODE" >&2
+  phase "plan" "$PLAN_ACTION starts after the checks below."
+}
+
+show_installer_header
 for arg in "$@"; do
   case "$arg" in
     --non-interactive) NON_INTERACTIVE=true ;;
@@ -228,7 +299,7 @@ run_root() {
 ensure_base_dependencies() {
   command -v tar >/dev/null 2>&1 && command -v sed >/dev/null 2>&1 && command -v find >/dev/null 2>&1 && command -v curl >/dev/null 2>&1 && return
   if command -v apt-get >/dev/null 2>&1; then
-    printf '%s▸%s Installing required system utilities…\n' "$C_GREEN" "$C_RESET"
+    phase "1/4" "Installing required system utilities..."
     run_root apt-get update
     run_root apt-get install -y ca-certificates curl tar sed findutils openssl
   else
@@ -237,11 +308,18 @@ ensure_base_dependencies() {
   fi
 }
 ensure_base_dependencies
+resolve_release
+CURRENT_VERSION=""
+if [ "$UPDATE" = true ]; then
+  CURRENT_VERSION=$(sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$WEB_DIR/package.json" | head -n 1)
+fi
+if [ "$UPDATE" = true ]; then PLAN_ACTION="Update"; else PLAN_ACTION="Installation"; fi
+show_install_plan "$PLAN_ACTION" "$CURRENT_VERSION"
 
 if [ "$MODE" = docker ]; then
   if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
     if command -v apt-get >/dev/null 2>&1; then
-      printf '%s▸%s Installing Docker Engine and Compose…\n' "$C_GREEN" "$C_RESET"
+      phase "2/4" "Installing Docker Engine and Compose..."
       run_root apt-get update
       run_root apt-get install -y docker.io docker-compose-v2 || run_root apt-get install -y docker.io docker-compose-plugin
       if command -v systemctl >/dev/null 2>&1; then run_root systemctl enable --now docker || true; fi
@@ -257,7 +335,7 @@ else
   if command -v node >/dev/null 2>&1; then node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)' >/dev/null 2>&1 && NODE_OK=true; fi
   if [ "$NODE_OK" = false ] || ! command -v npm >/dev/null 2>&1; then
     if command -v apt-get >/dev/null 2>&1; then
-      printf '%s▸%s Installing Node.js 24 and npm…\n' "$C_GREEN" "$C_RESET"
+      phase "2/4" "Installing Node.js 24 and npm..."
       run_root apt-get update
       run_root apt-get install -y ca-certificates curl
       curl -fsSL https://deb.nodesource.com/setup_24.x | run_root sh
@@ -412,7 +490,9 @@ install_prebuilt_native() {
   resolve_release
   [ -f "$WEB_DIR/.next/standalone/server.js" ] && return
   BUNDLE_STAGE=$(mktemp -d)
-  curl -fsSL "https://github.com/DrB0rk/TimeTone/releases/download/$RELEASE_TAG/timetone-web.tar.gz" -o "$BUNDLE_STAGE/web.tar.gz"
+  phase "3/4" "Downloading the native web runtime..."
+  run_with_spinner "Downloading TimeTone $RELEASE_TAG" curl -fsSL "https://github.com/DrB0rk/TimeTone/releases/download/$RELEASE_TAG/timetone-web.tar.gz" -o "$BUNDLE_STAGE/web.tar.gz"
+  phase "4/4" "Unpacking the verified runtime..."
   tar -xzf "$BUNDLE_STAGE/web.tar.gz" -C "$ROOT_DIR"
   [ -f "$WEB_DIR/.next/standalone/server.js" ] || {
     printf '%s\n' "The release has no standalone runtime." >&2; exit 1;
@@ -423,13 +503,15 @@ install_prebuilt_docker() {
   require_release_platform
   resolve_release
   IMAGE_STAGE=$(mktemp -d)
-  curl -fsSL "https://github.com/DrB0rk/TimeTone/releases/download/$RELEASE_TAG/timetone-docker.tar.gz" -o "$IMAGE_STAGE/docker.tar.gz"
-  docker load -i "$IMAGE_STAGE/docker.tar.gz"
+  phase "3/4" "Downloading the Docker image..."
+  run_with_spinner "Downloading TimeTone $RELEASE_TAG" curl -fsSL "https://github.com/DrB0rk/TimeTone/releases/download/$RELEASE_TAG/timetone-docker.tar.gz" -o "$IMAGE_STAGE/docker.tar.gz"
+  phase "4/4" "Loading and starting the Docker image..."
+  run_with_spinner "Loading TimeTone $RELEASE_TAG" docker load -i "$IMAGE_STAGE/docker.tar.gz"
   (cd "$WEB_DIR" && docker compose config -q && docker compose up -d --no-build)
 }
 
 if [ "$UPDATE" = true ]; then
-  printf '%s▸%s Updating TimeTone in place (%s%s%s)…\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$MODE" "$C_RESET"
+  phase "start" "Updating TimeTone $RELEASE_TAG in place."
   if [ "$MODE" = docker ]; then
     install_prebuilt_docker
   else
@@ -488,7 +570,7 @@ $([ "$MODE" = native ] && printf '%s\n' 'TIMETONE_INSTALL_MODE=native' || true)
 $DATABASE_LINE
 EOF
 
-printf '%s▸%s Installing TimeTone (%s%s%s)…\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$MODE" "$C_RESET"
+phase "start" "Installing TimeTone $RELEASE_TAG."
 if [ "$MODE" = docker ]; then
   install_prebuilt_docker
 else
