@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { EmployeeMultiSelect } from "@/components/employee-multi-select";
 import { TimeEntryDateField } from "@/components/time-entry-date-field";
 import { durationMinutes, formatDuration, roundDuration } from "@/lib/domain";
 import { getEmployees, getEntryChanges, getFilteredEntries, getSettings } from "@/lib/db";
@@ -203,25 +204,7 @@ export default async function EntriesPage({ searchParams }: { searchParams: Prom
             For corrections, remote work, or a missed clock-in. Leave Clock out empty for an open shift.
           </p>
           <form action={addManualEntry} className="mt-6 space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="employee_id">Employee</Label>
-              <select
-                id="employee_id"
-                name="employee_id"
-                className="h-10 w-full rounded-lg border border-white/15 bg-white/8 px-3 text-sm"
-                required
-              >
-                {employees.map((employee) => (
-                  <option
-                    className="text-black"
-                    key={employee.id}
-                    value={employee.id}
-                  >
-                    {employee.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <EmployeeMultiSelect employees={employees} />
             <TimeEntryDateField label="Clock in" name="clock_in" required />
             <TimeEntryDateField label="Clock out" name="clock_out" />
             <div className="space-y-2">

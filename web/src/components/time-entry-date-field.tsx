@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock3, ChevronDown, X } from "lucide-react";
+import { Clock3, ChevronDown } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { Label } from "@/components/ui/label";
 
@@ -31,7 +31,7 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, li
   const [open, setOpen] = useState(false);
   const [missingTime, setMissingTime] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -59,7 +59,7 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, li
       event.preventDefault();
       setMissingTime(true);
       setOpen(true);
-      requestAnimationFrame(() => inputRef.current?.focus());
+      requestAnimationFrame(() => triggerRef.current?.focus());
     };
 
     form.addEventListener("submit", validateTime);
@@ -73,6 +73,13 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, li
   };
   const clearTime = () => {
     setTime("");
+    setOpen(false);
+  };
+  const setNow = () => {
+    const rounded = new Date(Math.round(Date.now() / 900_000) * 900_000);
+    setDate(`${rounded.getFullYear()}-${String(rounded.getMonth() + 1).padStart(2, "0")}-${String(rounded.getDate()).padStart(2, "0")}`);
+    setTime(`${String(rounded.getHours()).padStart(2, "0")}:${String(rounded.getMinutes()).padStart(2, "0")}`);
+    setMissingTime(false);
     setOpen(false);
   };
   const hour = time ? time.slice(0, 2) : "09";
@@ -98,13 +105,13 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, li
           className={`h-10 min-w-0 rounded-lg border px-2.5 text-sm outline-none transition focus:border-[#526b38] focus:ring-2 focus:ring-[#d8ff62]/45 ${inputClass}`}
         />
         <button
+          ref={triggerRef}
           type="button"
           aria-expanded={open}
           aria-controls={panelId}
           aria-haspopup="dialog"
           onClick={() => {
             setOpen((visible) => !visible);
-            requestAnimationFrame(() => inputRef.current?.focus());
           }}
           className={`inline-flex h-10 items-center justify-between rounded-lg border px-2.5 text-sm outline-none transition hover:bg-black/[.04] focus:ring-2 focus:ring-[#d8ff62]/55 ${missingTime ? "border-red-500" : ""} ${inputClass}`}
         >
@@ -115,22 +122,14 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, li
       {missingTime && <p className="text-xs text-red-600">Choose a clock-in time.</p>}
       {open && (
         <div id={panelId} role="dialog" aria-label={`${label} time picker`} className={`absolute z-20 mt-1 w-[min(22rem,calc(100vw-2rem))] rounded-xl border p-3 ${panelClass}`}>
-          <div className="flex items-center gap-2">
-            <Clock3 className={`size-4 ${mutedClass}`} aria-hidden="true" />
-            <input
-              ref={inputRef}
-              type="time"
-              value={time}
-              onChange={(event) => {
-                setTime(event.target.value);
-                setMissingTime(false);
-              }}
-              className={`h-9 flex-1 rounded-md border px-2 text-sm tabular-nums outline-none focus:ring-2 focus:ring-[#d8ff62]/55 ${inputClass}`}
-              aria-label={`${label} time`}
-            />
-            {time && <button type="button" onClick={clearTime} className={`grid size-9 place-items-center rounded-md transition hover:bg-black/[.06] ${mutedClass}`} aria-label={`Clear ${label.toLowerCase()} time`}><X className="size-4" /></button>}
+          <div className="flex items-center justify-between gap-3">
+            <div className={`inline-flex items-center gap-2 text-sm ${mutedClass}`}>
+              <Clock3 className="size-4" aria-hidden="true" />
+              <span>{time ? `${time} selected` : "Choose a quarter-hour"}</span>
+            </div>
+            <button type="button" onClick={setNow} className="h-8 rounded-md bg-[#d8ff62] px-2.5 text-xs font-semibold text-[#17211b] transition hover:bg-[#c9ef58] focus:ring-2 focus:ring-[#d8ff62]/55">Now</button>
           </div>
-          <div className="mt-3 grid grid-cols-4 gap-1" aria-label="Quick time choices">
+          <div className="mt-3 grid grid-cols-4 gap-1" role="group" aria-label="Quarter-hour">
             {MINUTES.map((minute) => (
               <button key={minute} type="button" onClick={() => chooseTime(hour, minute)} className={`h-9 rounded-md text-sm tabular-nums transition focus:ring-2 focus:ring-[#d8ff62]/55 ${time === `${hour}:${minute}` ? "bg-[#d8ff62] font-semibold text-[#17211b]" : light ? "bg-black/[.035] hover:bg-black/[.07]" : "bg-white/8 hover:bg-white/14"}`}>
                 {hour}:{minute}
@@ -142,7 +141,7 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, li
               <button key={value} type="button" onClick={() => setTime(`${value}:${time ? time.slice(3) : "00"}`)} className={`h-8 rounded-md text-xs tabular-nums transition ${hour === value ? "bg-[#d8ff62] font-semibold text-[#17211b]" : light ? "hover:bg-black/[.06]" : "hover:bg-white/12"}`}>{value}</button>
             ))}
           </div>
-          <p className={`mt-2 text-[11px] ${mutedClass}`}>Type an exact time, or choose an hour and quarter-hour.</p>
+          {time && <button type="button" onClick={clearTime} className={`mt-3 text-xs underline-offset-2 transition hover:underline focus:underline ${mutedClass}`}>Clear time</button>}
         </div>
       )}
     </div>

@@ -194,22 +194,26 @@ export async function changePassword(formData: FormData) {
 export async function addManualEntry(formData: FormData) {
   await requireAuth();
   try {
-    const employeeId = z.string().min(1).parse(formData.get("employee_id"));
+    const employeeIds = [...new Set(z.array(z.string().min(1)).min(1).parse(formData.getAll("employee_ids")))];
     const clockIn = parseEntryDate(formData.get("clock_in"), "Clock-in");
     const clockOutValue = String(formData.get("clock_out") || "");
     const clockOut = clockOutValue ? parseEntryDate(clockOutValue, "Clock-out") : null;
     const note = z.string().max(200).parse(String(formData.get("note") || ""));
     if (clockOut && new Date(clockOut) <= new Date(clockIn)) throw new Error("Clock-out must be after clock-in");
     const now = new Date().toISOString();
-    const id = crypto.randomUUID();
     db.transaction(() => {
-      if (!db.prepare("SELECT 1 FROM employees WHERE id = ?").get(employeeId)) throw new Error("Employee not found");
-      if (!clockOut && db.prepare("SELECT 1 FROM time_entries WHERE employee_id = ? AND clock_out IS NULL").get(employeeId)) {
-        throw new Error("This employee already has an open time entry");
+      for (const employeeId of employeeIds) {
+        if (!db.prepare("SELECT 1 FROM employees WHERE id = ?").get(employeeId)) throw new Error("Employee not found");
+        if (!clockOut && db.prepare("SELECT 1 FROM time_entries WHERE employee_id = ? AND clock_out IS NULL").get(employeeId)) {
+          throw new Error("One or more employees already have an open time entry");
+        }
       }
-      db.prepare("INSERT INTO time_entries VALUES (?, ?, ?, ?, 'manual', ?, ?, ?)")
-        .run(id, employeeId, clockIn, clockOut, note || null, now, now);
-      logTimeEntryChange(id, "manual_create", null, { employeeId, clockIn, clockOut, note }, "Manual entry created");
+      for (const employeeId of employeeIds) {
+        const id = crypto.randomUUID();
+        db.prepare("INSERT INTO time_entries VALUES (?, ?, ?, ?, 'manual', ?, ?, ?)")
+          .run(id, employeeId, clockIn, clockOut, note || null, now, now);
+        logTimeEntryChange(id, "manual_create", null, { employeeId, clockIn, clockOut, note }, "Manual entry created");
+      }
     })();
     revalidateTimeEntryViews();
   } catch (error) {
