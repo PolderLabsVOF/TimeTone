@@ -22,6 +22,7 @@ function PopoverPositioner({
   alignOffset = 0,
   side = "bottom",
   sideOffset = 6,
+  collisionPadding = 16,
   className,
   ...props
 }: PopoverPrimitive.Positioner.Props) {
@@ -32,6 +33,7 @@ function PopoverPositioner({
       alignOffset={alignOffset}
       side={side}
       sideOffset={sideOffset}
+      collisionPadding={collisionPadding}
       className={cn("isolate z-50 outline-none", className)}
       {...props}
     />
