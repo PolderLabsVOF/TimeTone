@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   icons: { icon: "/timetone-mark.svg" },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
