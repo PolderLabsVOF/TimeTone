@@ -85,6 +85,13 @@ esp_err_t tk_storage_init(void)
         memset(&s_state, 0, sizeof(s_state));
         s_state.version = 1;
     }
+    // A corrupt or truncated blob can carry counts past the fixed-size arrays
+    // that back them, and the upload snapshot in api.c memcpys event_count
+    // entries straight out of s_state.events. Clamp to capacity so every reader
+    // stays inside the array; clamping keeps a valid queue that a memset would
+    // discard.
+    if (s_state.employee_count > TK_MAX_EMPLOYEES) s_state.employee_count = TK_MAX_EMPLOYEES;
+    if (s_state.event_count > TK_MAX_EVENTS) s_state.event_count = TK_MAX_EVENTS;
     if (s_code_queue.count > TK_MAX_CODE_REQUESTS) memset(&s_code_queue, 0, sizeof(s_code_queue));
     if (!s_config.touch_x_scale) s_config.touch_x_scale = 1000;
     if (!s_config.touch_y_scale) s_config.touch_y_scale = 1000;
