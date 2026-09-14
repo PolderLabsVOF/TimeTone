@@ -222,8 +222,9 @@ run_with_spinner() {
     printf '\r%s[ok]%s %s\n' "$C_GREEN" "$C_RESET" "$TASK_LABEL" >&2
     rm -f "$TASK_LOG"
     return
+  else
+    TASK_STATUS=$?
   fi
-  TASK_STATUS=$?
   printf '\r%s[failed]%s %s\n' "$C_RED" "$C_RESET" "$TASK_LABEL" >&2
   cat "$TASK_LOG" >&2
   rm -f "$TASK_LOG"
