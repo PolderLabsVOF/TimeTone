@@ -1,5 +1,5 @@
 import { format } from "date-fns";
-import { Download, History, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Download, History, Plus, Search } from "lucide-react";
 import { addManualEntry, deleteTimeEntry, updateTimeEntry } from "@/app/actions";
 import { PageHeading } from "@/components/page-heading";
 import { Badge } from "@/components/ui/badge";
@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EmployeeMultiSelect } from "@/components/employee-multi-select";
+import { EntriesFilterDates } from "@/components/entries-filter-dates";
 import { TimeEntryDateField } from "@/components/time-entry-date-field";
+import { EditEntryPopover } from "@/components/edit-entry-popover";
 import { durationMinutes, formatDuration, roundDuration } from "@/lib/domain";
 import { getEmployees, getEntryChanges, getFilteredEntries, getSettings } from "@/lib/db";
 
@@ -45,7 +47,7 @@ export default async function EntriesPage({ searchParams }: { searchParams: Prom
         <select name="employee" defaultValue={query.employee || ""} className="h-9 rounded-lg border border-black/10 bg-white px-3 text-sm"><option value="">All employees</option>{allEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select>
         <select name="status" defaultValue={query.status || ""} className="h-9 rounded-lg border border-black/10 bg-white px-3 text-sm"><option value="">All statuses</option><option value="open">Open</option><option value="closed">Closed</option></select>
         <select name="source" defaultValue={query.source || ""} className="h-9 rounded-lg border border-black/10 bg-white px-3 text-sm"><option value="">All sources</option><option value="device">Device</option><option value="manual">Manual</option><option value="automatic">Automatic</option></select>
-        <div className="flex gap-2"><input aria-label="From date" type="date" name="from" defaultValue={query.from} className="h-9 min-w-0 rounded-lg border border-black/10 px-2 text-sm" /><input aria-label="To date" type="date" name="to" defaultValue={query.to} className="h-9 min-w-0 rounded-lg border border-black/10 px-2 text-sm" /></div>
+        <EntriesFilterDates from={query.from} to={query.to} />
         <Button type="submit" variant="outline">Filter</Button>
       </form>
       <div className="mb-4 flex items-center justify-between text-sm text-black/45"><span>{entries.length} matching entr{entries.length === 1 ? "y" : "ies"}</span><a href={`/api/export?type=entries&${queryString}`} className="inline-flex items-center gap-1.5 font-medium text-black/60 hover:text-black"><Download className="size-4" />Export this view</a></div>
@@ -108,77 +110,16 @@ export default async function EntriesPage({ searchParams }: { searchParams: Prom
                         )}
                       </td>
                       <td className="px-5 py-4 text-right">
-                        <button
-                          type="button"
-                          popoverTarget={`edit-entry-${entry.id}`}
-                          popoverTargetAction="toggle"
-                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-black/10 px-2.5 text-xs font-medium text-black/60 transition-colors hover:bg-black/[.03]"
-                        >
-                          <Pencil className="size-3.5" />
-                          Edit
-                        </button>
-                        <div
-                          id={`edit-entry-${entry.id}`}
-                          popover="auto"
-                          className="fixed inset-0 m-auto max-h-[calc(100vh-2rem)] w-[min(21rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-black/10 bg-white p-4 text-left shadow-xl shadow-black/10"
-                          style={{ margin: "auto" }}
-                        >
-                            <div className="mb-3">
-                              <p className="text-sm font-semibold">Edit time entry</p>
-                              <p className="mt-0.5 text-xs text-black/45">
-                                Adjust the raw times; reports will recalculate automatically.
-                              </p>
-                            </div>
-                            <form action={updateTimeEntry} className="space-y-3">
-                              <input type="hidden" name="id" value={entry.id} />
-                              <div className="space-y-1.5">
-                                <Label htmlFor={`employee-${entry.id}`}>Employee</Label>
-                                <select
-                                  id={`employee-${entry.id}`}
-                                  name="employee_id"
-                                  defaultValue={entry.employee_id}
-                                  className="h-9 w-full rounded-lg border border-black/10 bg-white px-2.5 text-sm"
-                                  required
-                                >
-                                  {allEmployees.map((employee) => (
-                                    <option key={employee.id} value={employee.id}>
-                                      {employee.name}{employee.active ? "" : " (inactive)"}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                              <TimeEntryDateField
-                                label="Clock in"
-                                name="clock_in"
-                                id={`clock-in-${entry.id}`}
-                                defaultValue={toDateTimeLocal(entry.clock_in)}
-                                required
-                                light
-                              />
-                              <TimeEntryDateField
-                                label="Clock out"
-                                name="clock_out"
-                                id={`clock-out-${entry.id}`}
-                                defaultValue={entry.clock_out ? toDateTimeLocal(entry.clock_out) : ""}
-                                light
-                              />
-                              {!entry.clock_out && <p className="-mt-1 text-xs leading-4 text-emerald-700">This entry is open. Leave Clock out empty to keep it open, or set a time to close it.</p>}
-                              <div className="space-y-1.5">
-                                <Label htmlFor={`note-${entry.id}`}>Note</Label>
-                                <Input
-                                  id={`note-${entry.id}`}
-                                  name="note"
-                                  defaultValue={entry.note || ""}
-                                  placeholder="Reason for correction"
-                                  className="h-9 border-black/10 bg-white"
-                                />
-                              </div>
-                              <Button type="submit" size="sm" className="w-full bg-[#17211b] text-white hover:bg-[#26352c]">
-                                Save changes
-                              </Button>
-                            </form>
-                        </div>
-                        <form action={deleteTimeEntry} className="mt-2"><input type="hidden" name="id" value={entry.id} /><Button type="submit" size="xs" variant="ghost" className="w-full text-red-600 hover:bg-red-50 hover:text-red-700"><Trash2 className="size-3" />Delete entry</Button></form>
+                        <EditEntryPopover
+                          id={entry.id}
+                          employeeId={entry.employee_id}
+                          clockIn={toDateTimeLocal(entry.clock_in)}
+                          clockOut={entry.clock_out ? toDateTimeLocal(entry.clock_out) : null}
+                          note={entry.note}
+                          allEmployees={allEmployees}
+                          updateAction={updateTimeEntry}
+                          deleteAction={deleteTimeEntry}
+                        />
                       </td>
                     </tr>
                   );
