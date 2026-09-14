@@ -15,6 +15,19 @@ the printed LAN URL and sign in. To use an existing checkout, run
 `./install.sh`; explicit modes are `./install.sh --docker` and
 `./install.sh --native`.
 
+To test the latest unreleased development commit on a native Debian host, use
+the dev installer. It downloads the `dev` branch, builds the production
+runtime locally, and keeps the existing database and `.env` on updates:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/PolderLabsVOF/TimeTone/dev/install.sh | sh -s -- --dev --native
+```
+
+Pin a particular dev commit by setting `TIMETONE_SOURCE_REF` to its commit
+SHA. The dev firmware image is uploaded by the CI run for that same commit;
+download it from the run's **firmware** artifact and flash it from
+**Devices → USB firmware update**.
+
 For local development instead, the web application requires Node.js 24 and uses Deno for the checked-in lock
 file in this development environment.
 

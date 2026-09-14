@@ -143,10 +143,9 @@ static const int TK_CAL_TARGETS[4][2] = {
 
 // ============================================================================
 // Motion timing constants (design spec §8). Consumed by the Phase 2 motion
-// helpers below: press scale, entry growth, navigation slides, tint fades,
+// helpers below: entry growth, navigation slides, tint fades,
 // and the three status-dot loops.
 // ============================================================================
-#define TK_MOTION_PRESS_MS    100
 #define TK_MOTION_ENTRY_MS    120
 #define TK_MOTION_NAV_FWD_MS  180
 #define TK_MOTION_NAV_BACK_MS 140
@@ -159,10 +158,7 @@ static const int TK_CAL_TARGETS[4][2] = {
 // opacity; with LV_OPA_* named constants snapping to 30% (76) or 40% (102),
 // a literal 89 keeps the spec's 35% exact.
 #define TK_DOT_RETRY_DIP_OPA 89
-// 96% of the 256-unit scale (tile press).
-#define TK_SCALE_PRESSED     245
 // 70% of 256 — the entry-growth start.
-#define TK_SCALE_ENTRY_START 179
 // Navigation offsets (spec §8): new page enters from +16px (forward)
 // or -10px (return).
 #define TK_NAV_FWD_OFFSET     16
@@ -305,7 +301,7 @@ static void refresh_employee_status_list(void);
 static void startup_timeout_timer(lv_timer_t *timer);
 static void status_set_token(const char *text, tk_color_token_t token);
 static void rebuild_settings_picker_labels(void);
-static void set_scale_cb(void *obj, int32_t v);
+static void set_opa_cb(void *obj, int32_t v);
 static void set_translate_x_cb(void *obj, int32_t v);
 static void calibration_back_event(lv_event_t *event);
 
@@ -535,10 +531,9 @@ static void update_pin_label(void)
     lv_label_set_text(s_pin_label, hidden[0] ? hidden : "Choose your colors");
     lv_obj_set_style_text_color(s_pin_label, tk_lv_color(TK_TOKEN_INK), 0);
     // Sequence dots (spec §3): filled = ink fill + ink border; empty = 1px
-    // muted border, transparent fill. ONLY the newly filled mark grows
-    // 70->100% over 120ms (spec §8 "Entry"), pivot at its centre. The dots
-    // persist, so cancel any prior entry animation on that dot first;
-    // previously-filled dots settle at 100% with no animation.
+    // muted border, transparent fill. A newly filled mark fades in over 120ms.
+    // Opacity is used instead of scale so entry feedback never allocates an
+    // LVGL transformed draw layer from the terminal's small fixed pool.
     static size_t s_prev_filled;
     size_t filled = strlen(s_pin);
     for (int i = 0; i < 4; ++i) {
@@ -549,20 +544,19 @@ static void update_pin_label(void)
         lv_obj_set_style_bg_color(dot, tk_lv_color(TK_TOKEN_INK), 0);
         lv_obj_set_style_bg_opa(dot, on ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_color(dot, tk_lv_color(on ? TK_TOKEN_INK : TK_TOKEN_MUTED), 0);
-        lv_obj_set_style_transform_pivot_x(dot, LV_PCT(50), 0);
-        lv_obj_set_style_transform_pivot_y(dot, LV_PCT(50), 0);
-        lv_anim_delete(dot, set_scale_cb);
+        lv_anim_delete(dot, set_opa_cb);
         if (on && newly && !s_reduce_motion) {
+            lv_obj_set_style_opa(dot, LV_OPA_TRANSP, LV_PART_MAIN);
             lv_anim_t a;
             lv_anim_init(&a);
             lv_anim_set_var(&a, dot);
-            lv_anim_set_exec_cb(&a, set_scale_cb);
-            lv_anim_set_values(&a, TK_SCALE_ENTRY_START, LV_SCALE_NONE);
+            lv_anim_set_exec_cb(&a, set_opa_cb);
+            lv_anim_set_values(&a, LV_OPA_TRANSP, LV_OPA_COVER);
             lv_anim_set_duration(&a, TK_MOTION_ENTRY_MS);
             lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
             lv_anim_start(&a);
         } else {
-            lv_obj_set_style_transform_scale(dot, LV_SCALE_NONE, 0);
+            lv_obj_set_style_opa(dot, LV_OPA_COVER, LV_PART_MAIN);
         }
     }
     s_prev_filled = filled;
@@ -634,15 +628,9 @@ static void set_arc_rotation_cb(void *obj, int32_t v)
     lv_arc_set_rotation((lv_obj_t *)obj, v);
 }
 
-// Style-scale wrapper for the entry-growth of a sequence mark.
-static void set_scale_cb(void *obj, int32_t v)
-{
-    lv_obj_set_style_transform_scale((lv_obj_t *)obj, v, LV_PART_MAIN);
-}
-
-// Press feedback (spec §8 "Press"): scale to 96% while pressed, back to
-// 100% on release, no input delay. Implemented as a style-state transition
-// so LVGL drives it; no event callback, no explicit animation to cancel.
+// Pressed controls use a colour-only transition. Scale transforms are avoided
+// on interactive widgets because a tap on a large control would require a
+// temporary LVGL draw layer from the terminal's small fixed pool.
 //
 // WHY THE DESCRIPTOR LIVES ON THE DEFAULT SELECTOR (verified in the vendored
 // 9.3 source): update_obj_state() (lv_obj.c:934) skips style entries whose
@@ -652,62 +640,40 @@ static void set_scale_cb(void *obj, int32_t v)
 // the descriptor on selector 0 it is collected both ways. The props array
 // and descriptor are static (they are stored by pointer — API report §5).
 //
-// An object holds exactly ONE transition descriptor per selector, so tiles
-// (spec §3: pressed feedback is the scale motion, "not a colour change")
-// use the scale-only descriptor, while tinted controls (gear, clear, theme
-// segments — spec §3 pressed -> accent) use a combined scale+colour
-// descriptor at the 120ms control-state timing.
-static const lv_style_prop_t tk_press_scale_props[] = {
-    LV_STYLE_TRANSFORM_SCALE_X, LV_STYLE_TRANSFORM_SCALE_Y, 0
-};
-static lv_style_transition_dsc_t tk_press_scale_dsc;
 static const lv_style_prop_t tk_tint_press_props[] = {
-    LV_STYLE_TRANSFORM_SCALE_X, LV_STYLE_TRANSFORM_SCALE_Y,
     LV_STYLE_BG_COLOR, LV_STYLE_TEXT_COLOR, 0
 };
 static lv_style_transition_dsc_t tk_tint_press_dsc;
 
-static void press_feedback_attach(lv_obj_t *obj)
-{
-    if (s_reduce_motion) return;
-    lv_obj_set_style_transform_pivot_x(obj, LV_PCT(50), 0);
-    lv_obj_set_style_transform_pivot_y(obj, LV_PCT(50), 0);
-    lv_obj_set_style_transform_scale(obj, TK_SCALE_PRESSED, LV_STATE_PRESSED);
-    lv_obj_set_style_transition(obj, &tk_press_scale_dsc, 0);
-}
-
-// Tinted controls: 120ms colour fade (spec §8 "Control state") plus the
-// same centre-pivoted press scale.
+// Tinted controls: 120ms colour fade (spec §8 "Control state").
 static void tint_press_attach(lv_obj_t *obj)
 {
     if (s_reduce_motion) return;
-    lv_obj_set_style_transform_pivot_x(obj, LV_PCT(50), 0);
-    lv_obj_set_style_transform_pivot_y(obj, LV_PCT(50), 0);
-    lv_obj_set_style_transform_scale(obj, TK_SCALE_PRESSED, LV_STATE_PRESSED);
     lv_obj_set_style_transition(obj, &tk_tint_press_dsc, 0);
 }
 
-// Strip the pressed-state scale so a future press changes no transforms
-// (spec §8 reduced motion "removes transforms"). The colour transition
-// descriptor stays attached — colour fades are not transforms, pulses or
-// rotation — and with the pressed scale values gone the scale props in it
-// compare equal, so lv_obj_style_create_transition() skips them entirely.
+// Strip any legacy pressed-state scale so an older UI instance cannot keep
+// allocating transformed layers. Colour transitions remain harmless.
 static void press_feedback_detach(lv_obj_t *obj)
 {
     lv_obj_remove_local_style_prop(obj, LV_STYLE_TRANSFORM_SCALE_X, LV_STATE_PRESSED);
     lv_obj_remove_local_style_prop(obj, LV_STYLE_TRANSFORM_SCALE_Y, LV_STATE_PRESSED);
 }
 
-// Every interactive widget with press-scale feedback, indexed at build;
-// called from settings_reduce_motion_event whenever the flag flips.
+// Every interactive widget with pressed-state feedback, indexed at build;
+// called from settings_reduce_motion_event whenever the flag flips. Keypad
+// tiles are deliberately excluded: their large, frequently invalidated areas
+// would force LVGL to allocate a transformed draw layer from the small fixed
+// pool on every tap.
 static void press_feedback_set_all(bool enable)
 {
-    // Tiles: scale-only descriptor. Others: combined tint+scale.
+    // Keypad tiles intentionally have no transform feedback. Remove any
+    // legacy local transform in case this runs after an older UI build.
     for (int i = 0; i < 4; ++i) {
         if (!s_tiles[i]) continue;
-        if (enable) press_feedback_attach(s_tiles[i]);
-        else press_feedback_detach(s_tiles[i]);
+        press_feedback_detach(s_tiles[i]);
     }
+    // Remaining controls use the colour-only pressed-state descriptor.
     lv_obj_t *tinted[4];
     int n = 0;
     if (s_clear_btn) tinted[n++] = s_clear_btn;
@@ -722,8 +688,6 @@ static void press_feedback_set_all(bool enable)
 
 static void motion_descriptors_init(void)
 {
-    lv_style_transition_dsc_init(&tk_press_scale_dsc, tk_press_scale_props,
-                                 lv_anim_path_ease_out, TK_MOTION_PRESS_MS, 0, NULL);
     lv_style_transition_dsc_init(&tk_tint_press_dsc, tk_tint_press_props,
                                  lv_anim_path_ease_in_out, TK_MOTION_TINT_MS, 0, NULL);
 }
@@ -1096,15 +1060,15 @@ static void settings_reduce_motion_event(lv_event_t *event)
             lv_obj_set_style_translate_x(s_all_screens[i], 0, 0);
         }
         for (int i = 0; i < 4; ++i) {
-            lv_anim_delete(s_sequence_dots[i], set_scale_cb);
-            lv_obj_set_style_transform_scale(s_sequence_dots[i], LV_SCALE_NONE, 0);
+            lv_anim_delete(s_sequence_dots[i], set_opa_cb);
+            lv_obj_set_style_opa(s_sequence_dots[i], LV_OPA_COVER, LV_PART_MAIN);
         }
     }
     lv_obj_set_style_anim_duration(s_reduce_motion_switch, reduce ? 0 : TK_MOTION_TINT_MS, 0);
     // Turning reduce ON stops the running dot animation immediately
     // (spec §8 "stop immediately when the state changes") and removes the
-    // press-scale transforms from the interactive widgets; turning it OFF
-    // re-arms both. status_dot_set_state cancels first, so animations
+    // transformed layers from the interactive widgets; turning it OFF
+    // re-arms the colour transitions. status_dot_set_state cancels first, so animations
     // cannot stack.
     status_dot_set_state(s_network_state);
     press_feedback_set_all(!reduce);
@@ -1489,9 +1453,10 @@ static void build_clock_ui(void)
             lv_obj_set_style_bg_color(button, lv_color_hex(TK_CODE_COLORS[i]), 0);
             lv_obj_set_style_radius(button, 9, 0);
             lv_obj_set_style_border_width(button, 0, 0);
-            // Pressed feedback is the 100ms centre-pivoted scale-to-96%
-            // motion (spec §8) — not a colour change.
-            press_feedback_attach(button);
+            // Keep keypad tiles untransformed. A tile tap invalidates a large
+            // area, and a scale transform would require a temporary LVGL
+            // draw layer that does not fit reliably in the terminal's fixed
+            // memory pool.
             lv_obj_add_event_cb(button, keypad_button_event, LV_EVENT_CLICKED, (void *)keys[i]);
             s_tiles[i] = button;
         }

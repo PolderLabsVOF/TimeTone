@@ -14,10 +14,13 @@ installation, then provide the password, timezone, and port. It creates
 never sends configuration or attendance data outside your host. Re-run it to
 rebuild after pulling an update; choose to keep the existing configuration when
 prompted. Native installs require Node.js 20.9+ and npm and write logs to
-`web/timetone.log`. The installer registers a systemd user service named
-`timetone.service`, enables user lingering, and starts it at boot. Inspect its
-status with `systemctl --user status timetone.service`; if the host does not
-run systemd, use Docker mode or arrange an equivalent service manager yourself.
+`web/timetone.log`. The installer registers a systemd service named
+`timetone.service` and starts it at boot. Regular-user installs use a user
+service with lingering; root installs use a system service. Inspect its status
+with `systemctl status timetone.service` for root installs or
+`systemctl --user status timetone.service` for regular-user installs. If the
+host does not run systemd, use Docker mode or arrange an equivalent service
+manager yourself.
 
 On Debian/Ubuntu, the installer can install missing system dependencies using
 `apt-get` (Docker Engine and Compose for Docker mode, Node.js 24 and npm for
@@ -81,6 +84,18 @@ latest stable GitHub release. Native installs can install the selected release
 directly; the updater preserves `.env` and the SQLite data directory, builds the
 new version, and restarts the service. Keep the previous install directory as
 your rollback copy until you have verified the update.
+
+For testing unreleased code, run the installer from the `dev` branch with
+`--dev --native`. It downloads the current branch (or the SHA in
+`TIMETONE_SOURCE_REF`) and builds the standalone runtime locally:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/PolderLabsVOF/TimeTone/dev/install.sh | sh -s -- --dev --native
+```
+
+The matching firmware image is retained as a CI artifact on the same dev
+commit. Download that artifact and use **Devices → USB firmware update**; this
+does not require a GitHub release.
 
 Docker installs show the available release but must be updated from the host:
 download the release, replace the checkout, and rerun `./install.sh --docker`

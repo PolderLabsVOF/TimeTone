@@ -13,7 +13,7 @@ import { EditEntryPopover } from "@/components/edit-entry-popover";
 import { durationMinutes, formatDuration, roundDuration } from "@/lib/domain";
 import { getEmployees, getEntryChanges, getFilteredEntries, getSettings } from "@/lib/db";
 
-type Query = { q?: string; employee?: string; status?: string; source?: string; from?: string; to?: string; entryError?: string };
+type Query = { q?: string; employee?: string; status?: string; source?: string; from?: string; to?: string; entryError?: string; entrySuccess?: string };
 
 export default async function EntriesPage({ searchParams }: { searchParams: Promise<Query> }) {
   const query = await searchParams;
@@ -40,6 +40,11 @@ export default async function EntriesPage({ searchParams }: { searchParams: Prom
       {query.entryError && (
         <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           <span className="font-semibold">Time entry not saved.</span> {query.entryError}
+        </div>
+      )}
+      {query.entrySuccess && !query.entryError && (
+        <div role="status" aria-live="polite" className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <span className="font-semibold">Entry saved.</span> The manual entry is now in the list below.
         </div>
       )}
       <form className="mb-6 grid gap-3 rounded-2xl border border-black/6 bg-white p-4 shadow-sm shadow-black/[.02] md:grid-cols-[1.35fr_repeat(4,minmax(0,1fr))_auto]">
@@ -142,12 +147,12 @@ export default async function EntriesPage({ searchParams }: { searchParams: Prom
           </div>
           <h2 className="text-xl font-semibold">Manual entry</h2>
           <p className="mt-1 text-xs leading-5 text-white/45">
-            For corrections, remote work, or a missed clock-in. Leave Clock out empty for an open shift.
+            For corrections, remote work, or a missed clock-in. Clock out is optional; leave it blank to save an open shift.
           </p>
           <form action={addManualEntry} className="mt-6 space-y-4">
             <EmployeeMultiSelect employees={employees} />
             <TimeEntryDateField label="Clock in" name="clock_in" required surface="dark" />
-            <TimeEntryDateField label="Clock out" name="clock_out" surface="dark" />
+            <TimeEntryDateField label="Clock out" name="clock_out" clearable clearLabel="Clear end time" surface="dark" />
             <div className="space-y-2">
               <Label htmlFor="note">Note</Label>
               <Input
