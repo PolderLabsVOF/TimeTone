@@ -32,6 +32,8 @@ static volatile bool s_code_requested;
 static TickType_t s_next_pair_attempt;
 static volatile bool s_clock_request_in_flight;
 static uint8_t s_sync_failures;
+static esp_http_client_handle_t s_http_client;
+static char s_http_client_url[256];
 
 typedef struct { char *data; size_t length; size_t capacity; } response_buffer_t;
 static void ota_task(void *argument);
@@ -67,6 +69,15 @@ static esp_err_t http_event(esp_http_client_event_t *event)
     return ESP_OK;
 }
 
+static void http_client_reset(void)
+{
+    if (s_http_client) {
+        esp_http_client_cleanup(s_http_client);
+        s_http_client = NULL;
+    }
+    s_http_client_url[0] = 0;
+}
+
 static int request(const char *path, esp_http_client_method_t method, const char *body, char *response, size_t response_size)
 {
     const tk_config_t *config = tk_config_get();
@@ -91,23 +102,30 @@ static int request(const char *path, esp_http_client_method_t method, const char
         // Interactive clock requests fail fast because the durable queue will
         // retry them; background sync gets a little more time to recover.
         .timeout_ms = strstr(path, "/clock") ? 4000 : strstr(path, "/heartbeat") ? 8000 : strstr(path, "/events") ? 10000 : 15000,
-        // Keep HTTPS socket and TLS progress non-blocking. A synchronous
-        // mbedTLS handshake can occupy the API task long enough to starve the
-        // idle task and trip the ESP task watchdog when the server is down.
-        .is_async = strncmp(config->server_url, "https://", 8) == 0,
+        // One client is reused for the short-lived API burst. This keeps the
+        // TLS session and socket alive between heartbeat/config/code requests,
+        // avoiding a full ECDH handshake for every tap without retaining a
+        // separate idle warm-up client.
         .keep_alive_enable = true,
         .event_handler = http_event,
         .user_data = &buffer,
         .crt_bundle_attach = esp_crt_bundle_attach,
     };
-    // Keep every request one-shot. An idle retained TLS client consumed enough
-    // heap that the following config request could not allocate its own
-    // mbedTLS context, leaving the terminal stuck after a successful
-    // heartbeat. Interactive requests pay the connection setup once, but the
-    // API task never holds two TLS working sets at the same time.
-    esp_http_client_handle_t client = esp_http_client_init(&client_config);
-    if (!client) return -1;
-    esp_http_client_set_user_data(client, &buffer);
+    // The handle is shared across API paths. Compare only the origin; the
+    // endpoint path changes on every heartbeat/config/clock request.
+    if (s_http_client && strcmp(s_http_client_url, config->server_url) != 0) http_client_reset();
+    if (!s_http_client) {
+        s_http_client = esp_http_client_init(&client_config);
+        if (!s_http_client) return -1;
+        strlcpy(s_http_client_url, config->server_url, sizeof(s_http_client_url));
+    }
+    esp_http_client_handle_t client = s_http_client;
+    if (esp_http_client_set_url(client, url) != ESP_OK ||
+        esp_http_client_set_method(client, method) != ESP_OK ||
+        esp_http_client_set_user_data(client, &buffer) != ESP_OK) {
+        http_client_reset();
+        return -1;
+    }
     char auth[150];
     snprintf(auth, sizeof(auth), "Bearer %s", config->device_token);
     esp_http_client_set_header(client, "Authorization", auth);
@@ -116,26 +134,19 @@ static int request(const char *path, esp_http_client_method_t method, const char
     esp_http_client_set_header(client, "User-Agent", "TimeTone-Terminal/" TK_FIRMWARE_VERSION);
     esp_http_client_set_post_field(client, body, body ? strlen(body) : 0);
     int64_t started_us = esp_timer_get_time();
-    esp_err_t err;
-    int64_t deadline_us = esp_timer_get_time() + ((int64_t)client_config.timeout_ms + 1000) * 1000;
-    do {
-        err = esp_http_client_perform(client);
-        if (err != ESP_ERR_HTTP_EAGAIN) break;
-        // Async mode returns while the socket/TLS state machine is waiting on
-        // I/O. Yield between steps so the idle task, LVGL, and Wi-Fi stack can
-        // run while a connection is being established.
-        vTaskDelay(1);
-    } while (esp_timer_get_time() < deadline_us);
-    if (err == ESP_ERR_HTTP_EAGAIN) err = ESP_ERR_TIMEOUT;
+    esp_err_t err = esp_http_client_perform(client);
     // A 401 response can make esp_http_client return ESP_ERR_NOT_SUPPORTED
     // before ESP_OK (it attempts an auth challenge). Preserve the HTTP status
     // so the pairing handshake can still run for a new token.
     int status = esp_http_client_get_status_code(client);
     if (status <= 0) status = err == ESP_OK ? 200 : -1;
     int64_t elapsed_ms = (esp_timer_get_time() - started_us) / 1000;
-    if (err != ESP_OK) ESP_LOGW(TAG, "%s failed after %lldms: %s", path, elapsed_ms, esp_err_to_name(err));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "%s failed after %lldms: status=%d: %s", path, elapsed_ms, status,
+                 esp_err_to_name(err));
+        http_client_reset();
+    }
     else if (strstr(path, "/clock") && elapsed_ms > 1000) ESP_LOGW(TAG, "slow clock request: %lldms", elapsed_ms);
-    esp_http_client_cleanup(client);
     return status;
 }
 
@@ -547,6 +558,17 @@ static void api_task(void *argument)
             continue;
         }
 
+        // A queued tap is the interactive priority. Send it before a due
+        // background heartbeat/config refresh so a user never waits behind a
+        // second full TLS exchange.
+        bool code_attempted = false;
+        if (code_requested) {
+            esp_err_t code_result = push_code_requests();
+            code_attempted = true;
+            if (code_result == ESP_OK) tk_display_set_network_state(TK_DISPLAY_ONLINE);
+            else if (code_result != ESP_ERR_NOT_FOUND) tk_display_set_network_state(TK_DISPLAY_SYNC_RETRYING);
+        }
+
         if (refresh_requested || health_due || config_due) {
             int health_status = heartbeat();
             if (health_status == 200) {
@@ -583,7 +605,7 @@ static void api_task(void *argument)
         // A persisted code is retried after every healthy heartbeat, which
         // recovers submissions made during an outage even when nobody taps
         // the terminal again. Request IDs make these retries idempotent.
-        if (code_requested || (health_due && !s_sync_failures)) {
+        if (!code_attempted && (health_due && !s_sync_failures)) {
             esp_err_t code_result = push_code_requests();
             if (code_result == ESP_OK) tk_display_set_network_state(TK_DISPLAY_ONLINE);
             else if (code_result != ESP_ERR_NOT_FOUND) tk_display_set_network_state(TK_DISPLAY_SYNC_RETRYING);
@@ -595,7 +617,7 @@ esp_err_t tk_api_start(void)
 {
     s_wake = xSemaphoreCreateBinary();
     if (!s_wake) return ESP_ERR_NO_MEM;
-    if (xTaskCreate(api_task, "timekeep_api", TK_API_TASK_STACK, NULL, 4, NULL) != pdPASS) return ESP_ERR_NO_MEM;
+    if (xTaskCreatePinnedToCore(api_task, "timekeep_api", TK_API_TASK_STACK, NULL, 4, NULL, 0) != pdPASS) return ESP_ERR_NO_MEM;
     s_force_config = true;
     xSemaphoreGive(s_wake);
     return ESP_OK;

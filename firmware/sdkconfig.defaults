@@ -13,6 +13,12 @@ CONFIG_LV_USE_LABEL=y
 CONFIG_LV_USE_SPINNER=y
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 
+# HTTPS certificate verification can briefly monopolize the network task on
+# ESP32's software ECC path. The API task is pinned away from LVGL and all
+# requests have their own timeout; give the idle watchdog enough margin for a
+# first TLS handshake without allowing an unbounded stall.
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=15
+
 # LVGL failures are silent without the log callback. The malloc assert is
 # intentionally disabled: a transient draw-buffer allocation failure must
 # return to the render loop instead of entering LV_ASSERT_HANDLER's infinite
