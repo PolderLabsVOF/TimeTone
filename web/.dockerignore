@@ -1,7 +1,13 @@
-.next
 node_modules
-data
+.next
 .env
+.env.*
+!.env.example
+data
+*.db
+*.db-*
 *.log
+*.pid
+coverage
 test-results
 playwright-report

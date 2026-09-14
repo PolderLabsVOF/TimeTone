@@ -6,7 +6,7 @@
 #define TK_MAX_EMPLOYEES 32
 #define TK_MAX_EVENTS 48
 #define TK_MAX_CODE_REQUESTS 12
-#define TK_FIRMWARE_VERSION "0.2.32"
+#define TK_FIRMWARE_VERSION "0.3.0"
 
 typedef struct {
     char ssid[33];
@@ -30,6 +30,10 @@ typedef struct {
     uint16_t low_power_timeout_seconds;
     bool power_timeouts_configured;
     uint16_t full_sync_interval_seconds;
+    uint32_t ui_preferences_version;
+    bool reduce_motion;
+    bool local_intervals_override;
+    bool local_power_override;
 } tk_config_t;
 
 typedef struct {

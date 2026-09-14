@@ -79,7 +79,10 @@ It finishes with a health check and prints the exact LAN URL and port.
 
 Native installs download the production bundle attached to the latest GitHub
 release, so Node.js users do not need to compile the dashboard locally. Docker
-deployments use the included production Dockerfile and persistent data volume.
+deployments load the prebuilt image and retain the persistent data volume.
+Release web assets target Linux x86-64. Native installations require Node.js 24
+and glibc 2.36 or newer (Debian 12 / Ubuntu 24.04 or newer). Docker avoids the
+host glibc requirement. Other architectures are not covered by these binaries.
 
 Choose a mode explicitly:
 

@@ -3,6 +3,14 @@
 All notable TimeTone releases are documented here. Versions follow
 [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## [0.3.0] - 2026-09-14
+
+- Port the approved portrait terminal design with touch-sized controls, custom settings pickers, connection-state indicators, light/dark themes and reduced motion.
+- Persist local terminal preferences with an option to resume web-managed settings.
+- Harden terminal reconnection and updater progress reporting.
+- Distribute the standalone web runtime and firmware as prebuilt release assets.
+- Make native Settings updates install the standalone runtime without compiling on the user's machine.
+
 ## [0.2.32] - 2026-09-04
 
 - Make terminal wake-up resilient after long idle periods: restore full Wi-Fi radio power, verify the current access-point association, and trigger the normal reconnect flow when it has expired.

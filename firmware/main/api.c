@@ -162,15 +162,15 @@ static esp_err_t fetch_config(void)
         cJSON *company_name = cJSON_GetObjectItem(settings, "companyName");
         tk_config_t updated = *tk_config_get();
         bool changed = false;
-        if (cJSON_IsNumber(interval)) {
+        if (!updated.local_intervals_override && cJSON_IsNumber(interval)) {
             uint16_t seconds = (uint16_t)(interval->valuedouble < 2 ? 2 : interval->valuedouble > 60 ? 60 : interval->valuedouble);
             if (updated.sync_interval_seconds != seconds) { updated.sync_interval_seconds = seconds; changed = true; }
         }
-        if (cJSON_IsNumber(full_interval)) {
+        if (!updated.local_intervals_override && cJSON_IsNumber(full_interval)) {
             uint16_t seconds = (uint16_t)(full_interval->valuedouble < 30 ? 30 : full_interval->valuedouble > 3600 ? 3600 : full_interval->valuedouble);
             if (updated.full_sync_interval_seconds != seconds) { updated.full_sync_interval_seconds = seconds; changed = true; }
         }
-        if (cJSON_IsNumber(screen_off_timeout) && cJSON_IsNumber(low_power_timeout)) {
+        if (!updated.local_power_override && cJSON_IsNumber(screen_off_timeout) && cJSON_IsNumber(low_power_timeout)) {
             uint16_t screen_seconds = (uint16_t)(screen_off_timeout->valuedouble < 0 ? 0 : screen_off_timeout->valuedouble > 3600 ? 3600 : screen_off_timeout->valuedouble);
             uint16_t low_power_seconds = (uint16_t)(low_power_timeout->valuedouble < 0 ? 0 : low_power_timeout->valuedouble > 3600 ? 3600 : low_power_timeout->valuedouble);
             if (low_power_seconds && screen_seconds && low_power_seconds < screen_seconds) low_power_seconds = screen_seconds;
@@ -368,7 +368,17 @@ static int heartbeat(void)
         snprintf(pair_body, sizeof(pair_body), "{\"deviceName\":\"%s\",\"token\":\"%s\",\"firmwareVersion\":\"%s\",\"ipAddress\":\"%s\"}", tk_network_setup_ssid(), tk_config_get()->device_token, TK_FIRMWARE_VERSION, ip);
         int pair_status = request("/api/device/v1/pair", HTTP_METHOD_POST, pair_body, response, sizeof(response));
         if (pair_status == 202) ESP_LOGW(TAG, "device pairing requested; approve it in the server dashboard");
-        else if (pair_status == 200) ESP_LOGI(TAG, "device pairing already approved");
+        else if (pair_status == 200) {
+            // Approval was already in place — the first heartbeat raced
+            // ahead of the server updating its token table. Retry once so
+            // the caller sees 200 and the display flips to ONLINE without
+            // waiting on a manual Sync Now tap. If the retry still 401s
+            // (e.g. server replication lag) keep returning the original
+            // 401 and let the next scheduled attempt recover.
+            ESP_LOGI(TAG, "device pairing already approved");
+            int retry_status = request("/api/device/v1/heartbeat", HTTP_METHOD_POST, body, response, sizeof(response));
+            if (retry_status == 200) return retry_status;
+        }
     }
     return status;
 }
@@ -430,9 +440,14 @@ void tk_api_resume(void)
     // low power. Keeping that socket makes the first colour code after wake
     // wait for a TCP timeout. Start a clean TLS connection during wake-up,
     // before anyone reaches the keypad, and independently validate Wi-Fi.
+    // A touch wake (or sleep-cycle wake) is also the cheapest moment to
+    // refresh server config: the radio and the user are both already there,
+    // so kick off a full heartbeat + config fetch instead of only warming
+    // the socket.
     tk_network_resume();
     if (!s_clock_request_in_flight) discard_clock_client();
     s_warm_requested = true;
+    s_force_config = true;
     if (s_wake) xSemaphoreGive(s_wake);
 }
 void tk_api_poke(void) { s_code_requested = true; if (s_wake) xSemaphoreGive(s_wake); }

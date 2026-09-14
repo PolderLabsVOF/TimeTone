@@ -10,6 +10,8 @@
 
 # ESP-IDF
 firmware/build/
+build-ui-port/
+firmware/build-ui-port/
 firmware/sdkconfig
 firmware/sdkconfig.old
 firmware/managed_components/

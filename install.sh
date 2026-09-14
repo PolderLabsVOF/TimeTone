@@ -2,10 +2,27 @@
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-# Fetch the current main branch with a cache-busting query parameter below.
-# A fixed commit here becomes stale after the next release and can silently
-# roll an existing installation back; private forks can still override it.
-SOURCE_REF=${TIMETONE_SOURCE_REF:-main}
+# Resolve source and prebuilt assets from the same published release.
+# Private forks may explicitly override the source reference.
+SOURCE_REF=${TIMETONE_SOURCE_REF:-}
+RELEASE_TAG=${TIMETONE_RELEASE_TAG:-}
+
+resolve_release() {
+  if [ -z "$RELEASE_TAG" ]; then
+    RELEASE_TAG=$(curl -fsSL https://api.github.com/repos/DrB0rk/TimeTone/releases/latest |
+      sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)
+  fi
+  case "$RELEASE_TAG" in v[0-9]*.[0-9]*.[0-9]*) ;; *) printf '%s\n' "Could not resolve a stable release." >&2; exit 1 ;; esac
+  [ -n "$SOURCE_REF" ] || SOURCE_REF=$RELEASE_TAG
+  export TIMETONE_RELEASE_TAG="$RELEASE_TAG"
+}
+
+require_release_platform() {
+  if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; then
+    printf '%s\n' "Prebuilt web releases currently support Linux x86-64 only." >&2
+    exit 1
+  fi
+}
 
 stop_port_processes() {
   STOP_PORT=$1
@@ -38,8 +55,7 @@ stop_port_processes() {
 stop_before_update() {
   UPDATE_MODE=$(sed -n 's/^TIMETONE_INSTALL_MODE=//p' "$SCRIPT_DIR/web/.env" | head -n 1)
   if [ "$UPDATE_MODE" = docker ]; then
-    printf '%s\n' "Stopping the existing Docker service before updating…" >&2
-    (cd "$SCRIPT_DIR/web" && docker compose down)
+    printf '%s\n' "Keeping Docker running until the replacement image is ready…" >&2
     return
   fi
   UPDATE_PID=$(sed -n '1p' "$SCRIPT_DIR/web/timetone.pid" 2>/dev/null || true)
@@ -63,6 +79,7 @@ if [ -f "$SCRIPT_DIR/web/.env" ] && [ "${TIMETONE_UPDATE_IN_PROGRESS:-}" != 1 ];
     *" --reset-password "*) ;;
     *)
       command -v curl >/dev/null 2>&1 || { printf '%s\n' "curl is required to update TimeTone." >&2; exit 1; }
+      resolve_release
       TMP_UPDATE=$(mktemp -d)
       trap 'rm -rf "$TMP_UPDATE"' EXIT HUP INT TERM
       printf '%s\n' "Existing TimeTone installation detected — downloading the latest version…" >&2
@@ -72,6 +89,15 @@ if [ -f "$SCRIPT_DIR/web/.env" ] && [ "${TIMETONE_UPDATE_IN_PROGRESS:-}" != 1 ];
       NEW_SOURCE=$(find "$TMP_UPDATE/source" -mindepth 1 -maxdepth 1 -type d | head -n 1)
       [ -n "$NEW_SOURCE" ] || { printf '%s\n' "The update archive was empty." >&2; exit 1; }
       cp "$SCRIPT_DIR/web/.env" "$TMP_UPDATE/.env"
+      INSTALLED_MODE=$(sed -n 's/^TIMETONE_INSTALL_MODE=//p' "$TMP_UPDATE/.env" | head -n 1)
+      require_release_platform
+      if [ "$INSTALLED_MODE" = native ]; then
+        curl -fsSL "https://github.com/DrB0rk/TimeTone/releases/download/$RELEASE_TAG/timetone-web.tar.gz" -o "$TMP_UPDATE/timetone-web.tar.gz"
+        tar -tzf "$TMP_UPDATE/timetone-web.tar.gz" | grep -q 'web/.next/standalone/server.js' || {
+          printf '%s\n' "Release is missing the prebuilt web runtime; current installation was not stopped." >&2
+          exit 1
+        }
+      fi
       # All downloads and validation happen while the current service is still
       # available. Stop it only once the replacement is ready to be applied.
       stop_before_update
@@ -82,11 +108,12 @@ if [ -f "$SCRIPT_DIR/web/.env" ] && [ "${TIMETONE_UPDATE_IN_PROGRESS:-}" != 1 ];
       # would otherwise leave the previous UI bundle serving stale pages.
       INSTALLED_MODE=$(sed -n 's/^TIMETONE_INSTALL_MODE=//p' "$TMP_UPDATE/.env" | head -n 1)
       if [ "$INSTALLED_MODE" = native ]; then
-        if curl -fsSL "https://github.com/DrB0rk/TimeTone/releases/latest/download/timetone-web.tar.gz?cachebust=$(date +%s%N)" -o "$TMP_UPDATE/timetone-web.tar.gz"; then
+        if [ -f "$TMP_UPDATE/timetone-web.tar.gz" ]; then
           if [ -d "$SCRIPT_DIR/web/.next/standalone" ]; then mv "$SCRIPT_DIR/web/.next/standalone" "$TMP_UPDATE/old-standalone"; fi
           tar -xzf "$TMP_UPDATE/timetone-web.tar.gz" -C "$SCRIPT_DIR"
         else
-          printf '%s\n' "Prebuilt web bundle unavailable; the native update will build locally." >&2
+          printf '%s\n' "Prebuilt web bundle unavailable; update stopped." >&2
+          exit 1
         fi
       fi
       trap - EXIT HUP INT TERM
@@ -98,6 +125,7 @@ fi
 
 if [ ! -f "$SCRIPT_DIR/web/package.json" ]; then
   command -v curl >/dev/null 2>&1 || { printf '%s\n' "curl is required for one-command installation." >&2; exit 1; }
+  resolve_release
   INSTALL_DIR=${TIMETONE_INSTALL_DIR:-"$(pwd)/TimeTone"}
   [ -d "$INSTALL_DIR/web" ] || {
     TMP_DIR=$(mktemp -d)
@@ -107,15 +135,11 @@ if [ ! -f "$SCRIPT_DIR/web/package.json" ]; then
     for arg in "$@"; do [ "$arg" = "--native" ] && REQUEST_NATIVE=true; done
     if [ "$REQUEST_NATIVE" = true ]; then
       printf '%s\n' "Downloading the latest prebuilt TimeTone web release…"
-      if curl -fsSL "https://github.com/DrB0rk/TimeTone/releases/latest/download/timetone-web.tar.gz?cachebust=$(date +%s)" -o "$TMP_DIR/timetone-web.tar.gz"; then
+      if curl -fsSL "https://github.com/DrB0rk/TimeTone/releases/download/$RELEASE_TAG/timetone-web.tar.gz" -o "$TMP_DIR/timetone-web.tar.gz"; then
         tar -xzf "$TMP_DIR/timetone-web.tar.gz" -C "$INSTALL_DIR"
       else
-        printf '%s\n' "Prebuilt release unavailable; downloading the source fallback…"
-        curl -fsSL "https://codeload.github.com/DrB0rk/TimeTone/tar.gz/$SOURCE_REF?cachebust=$(date +%s)" -o "$TMP_DIR/timetone.tar.gz"
-        mkdir -p "$TMP_DIR/source"
-        tar -xzf "$TMP_DIR/timetone.tar.gz" -C "$TMP_DIR/source"
-        SOURCE_DIR=$(find "$TMP_DIR/source" -mindepth 1 -maxdepth 1 -type d | head -n 1)
-        cp -R "$SOURCE_DIR"/. "$INSTALL_DIR"/
+        printf '%s\n' "Prebuilt release unavailable. No local build was attempted; retry when the release is available." >&2
+        exit 1
       fi
     else
       printf '%s\n' "Downloading the latest TimeTone source release…"
@@ -383,15 +407,36 @@ NODE
   exit 0
 fi
 
+install_prebuilt_native() {
+  require_release_platform
+  resolve_release
+  [ -f "$WEB_DIR/.next/standalone/server.js" ] && return
+  BUNDLE_STAGE=$(mktemp -d)
+  curl -fsSL "https://github.com/DrB0rk/TimeTone/releases/download/$RELEASE_TAG/timetone-web.tar.gz" -o "$BUNDLE_STAGE/web.tar.gz"
+  tar -xzf "$BUNDLE_STAGE/web.tar.gz" -C "$ROOT_DIR"
+  [ -f "$WEB_DIR/.next/standalone/server.js" ] || {
+    printf '%s\n' "The release has no standalone runtime." >&2; exit 1;
+  }
+}
+
+install_prebuilt_docker() {
+  require_release_platform
+  resolve_release
+  IMAGE_STAGE=$(mktemp -d)
+  curl -fsSL "https://github.com/DrB0rk/TimeTone/releases/download/$RELEASE_TAG/timetone-docker.tar.gz" -o "$IMAGE_STAGE/docker.tar.gz"
+  docker load -i "$IMAGE_STAGE/docker.tar.gz"
+  (cd "$WEB_DIR" && docker compose config -q && docker compose up -d --no-build)
+}
+
 if [ "$UPDATE" = true ]; then
   printf '%s▸%s Updating TimeTone in place (%s%s%s)…\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$MODE" "$C_RESET"
   if [ "$MODE" = docker ]; then
-    (cd "$WEB_DIR" && docker compose config -q && docker compose up -d --build)
+    install_prebuilt_docker
   else
     if [ -f "$WEB_DIR/.next/standalone/server.js" ]; then
       printf '%s\n' "Using the prebuilt web bundle (no local build required)."
     else
-      (cd "$WEB_DIR" && npm install --no-audit --no-fund && npm run build)
+      install_prebuilt_native
     fi
     stop_native_server
     if [ -f "$WEB_DIR/.next/standalone/server.js" ]; then (cd "$WEB_DIR/.next/standalone" && set -a && . "$WEB_DIR/.env" && set +a && PORT="$PORT" nohup node server.js > "$WEB_DIR/timetone.log" 2>&1 & echo $! > "$WEB_DIR/timetone.pid"); else (cd "$WEB_DIR" && set -a && . .env && set +a && PORT="$PORT" nohup npm run start -- --hostname 0.0.0.0 > timetone.log 2>&1 & echo $! > timetone.pid); fi
@@ -445,12 +490,12 @@ EOF
 
 printf '%s▸%s Installing TimeTone (%s%s%s)…\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$MODE" "$C_RESET"
 if [ "$MODE" = docker ]; then
-  (cd "$WEB_DIR" && docker compose config -q && docker compose up -d --build)
+  install_prebuilt_docker
 else
   if [ -f "$WEB_DIR/.next/standalone/server.js" ]; then
     printf '%s\n' "Using the prebuilt web bundle (no local build required)."
   else
-    (cd "$WEB_DIR" && npm install && npm run build)
+    install_prebuilt_native
   fi
   stop_native_server
   if [ -f "$WEB_DIR/.next/standalone/server.js" ]; then (cd "$WEB_DIR/.next/standalone" && set -a && . "$WEB_DIR/.env" && set +a && PORT="$PORT" nohup node server.js > "$WEB_DIR/timetone.log" 2>&1 & echo $! > "$WEB_DIR/timetone.pid"); else (cd "$WEB_DIR" && set -a && . .env && set +a && PORT="$PORT" nohup npm run start -- --hostname 0.0.0.0 > timetone.log 2>&1 & echo $! > timetone.pid); fi

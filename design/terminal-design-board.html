@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TimeTone • Firmware component board</title>
+<link rel="stylesheet" href="terminal-components.css">
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f2eb;color:#22362a;font:15px/1.5 Arial,Helvetica,sans-serif}main{max-width:1160px;margin:auto;padding:32px 24px 64px}h1{font-size:28px;letter-spacing:-.7px;margin:0}h2{font-size:20px;margin:0 0 20px}h3{font-size:14px;margin:0 0 12px}p{max-width:70ch;color:#58675b}a{color:inherit;text-underline-offset:4px}header.board-head{display:flex;justify-content:space-between;align-items:center;gap:20px}nav{display:flex;gap:16px;flex-wrap:wrap}section.board-section{border-top:1px solid #bec6b7;margin-top:36px;padding-top:28px}.screens{display:flex;flex-wrap:wrap;gap:28px}figure{margin:0;width:240px}iframe{display:block;width:240px;height:320px;border:0;outline:8px solid #26332a;border-radius:2px;margin:8px 0 20px;background:#f3f2eb}figcaption{font-size:13px;color:#58675b}button{font:inherit;min-height:44px;cursor:pointer;border:1px solid #87947f;border-radius:6px;background:#e5e8dd;color:#22362a;padding:8px 14px}button:focus-visible,a:focus-visible{outline:2px solid #22362a;outline-offset:3px}.controls{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}.controls [aria-pressed=true]{background:#22362a;color:#f3f2eb}.state-row{display:flex;flex-wrap:wrap;gap:12px}.specimen.screen{width:auto;height:auto;min-width:174px;overflow:visible;display:flex;align-items:center;gap:16px;padding:20px;border-radius:6px}.state-label{font-size:13px}.state-label small{display:block;color:var(--muted)}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;vertical-align:top;padding:12px 10px 12px 0;border-bottom:1px solid #bec6b7}th{font-weight:700}code{font-size:12px;overflow-wrap:anywhere}.table-wrap{overflow-x:auto}.token-pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:24px}.palette.screen{width:auto;height:auto;padding:20px}.token{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 0;font-size:13px}.swatch{display:inline-block;width:24px;height:24px;border:1px solid var(--muted);vertical-align:middle;margin-right:10px}.small{font-size:12px}.motion-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}.motion-list p{margin:4px 0;font-size:13px}.motion-list strong{font-size:14px}.board-head a{white-space:nowrap}@media(max-width:560px){main{padding:24px 16px}.board-head{align-items:flex-start!important;flex-direction:column}.screens{justify-content:center}h1{font-size:24px}}
+</style>
+</head>
+<body><main>
+<header class="board-head"><h1>TimeTone component board</h1><a href="terminal-ui-concepts.html">Open terminal mockup</a></header>
+<p>Option 1 · 240 × 320 portrait · 2.8-inch CYD. Interactive reference, not firmware. All connection and calibration results are simulated.</p>
+<nav><a href="#screens">Screens</a><a href="#status">Status dots</a><a href="#tokens">Themes</a><a href="#geometry">Components</a><a href="#motion">Motion</a></nav>
+<section class="board-section" id="screens"><h2>Screens & controls</h2>
+<div class="controls" aria-label="Preview theme"><button data-theme="light" aria-pressed="true">Light</button><button data-theme="dark" aria-pressed="false">Dark</button><button id="reduce" aria-pressed="false">Reduce motion</button></div>
+<div class="screens">
+<figure><h3>Keypad</h3><iframe title="Interactive keypad" data-view="keypad"></iframe><figcaption>Four 104 × 84 tiles. A 44px Clear button stays in reach. Tap four colours to test completion.</figcaption></figure>
+<figure><h3>Settings</h3><iframe title="Interactive scrollable settings" data-view="settings"></iframe><figcaption>Theme segments, motion switch, custom pickers and actions. Scroll for connection settings.</figcaption></figure>
+<figure><h3>Custom picker</h3><iframe title="Interactive screen-off picker" data-view="picker"></iframe><figcaption>48px rows, selected check, scroll and Back. Tap commits; Back or Escape cancels.</figcaption></figure>
+<figure><h3>Connection actions</h3><iframe title="Interactive retry state" data-view="connection" data-state="offline"></iframe><figcaption>Offline demo. Sync now shows busy, then Retry. No successful connection is fabricated.</figcaption></figure>
+<figure><h3>Partial entry</h3><iframe title="Two colours entered" data-view="entry"></iframe><figcaption>Filled sequence dots acknowledge input. Clear cancels pending completion and resets all four.</figcaption></figure>
+<figure><h3>Touch calibration</h3><iframe title="Interactive calibration" data-view="calibration"></iframe><figcaption>44px targets, four positions. Back abandons calibration. Hardware accuracy is not simulated.</figcaption></figure>
+</div></section>
+<section class="board-section" id="status"><h2>Connection dots</h2><p>14px marks. Shape carries meaning alongside colour; only activity states animate. The terminal header keeps the label hidden.</p>
+<div class="state-row" id="states"></div>
+<div class="controls" id="state-controls" aria-label="Keypad connection state"></div>
+<p class="small">These buttons change the first keypad preview only. States map to TK_DISPLAY_ONLINE, OFFLINE, CONNECTING, SYNCING and SYNC_RETRYING.</p>
+</section>
+<section class="board-section" id="tokens"><h2>Light & dark tokens</h2><div class="token-pair" id="palettes"></div><p class="small">The four code colours stay unchanged in both themes: Coral #EF6F61 (A), Ocean #3D8BFD (B), Lime #9ACB3C (C), Violet #9B72CF (D).</p></section>
+<section class="board-section" id="geometry"><h2>Firmware component contract</h2><div class="table-wrap"><table>
+<thead><tr><th>Component</th><th>Native geometry</th><th>Behaviour / states</th></tr></thead><tbody>
+<tr><td>Canvas & header</td><td>240 × 320; header 52 high; 12px gutters</td><td>Fixed portrait canvas. No page-level scrolling; settings content alone scrolls.</td></tr>
+<tr><td>Gear / navigation</td><td>44 × 44 target; gear 24 × 24</td><td>Gear opens Settings. Done returns to keypad. Back returns from picker or calibration.</td></tr>
+<tr><td>Sequence</td><td>36px band; four 10px dots, 7px gaps</td><td>Empty, partial, complete. Input locks at four; demo clears after 1400ms.</td></tr>
+<tr><td>Colour tiles</td><td>104 × 84; 8px gap; 9px radius</td><td>2 × 2 always. Normal, pressed, disabled. Firmware order A B / C D must not change.</td></tr>
+<tr><td>Clear</td><td>216 × 44; radius 8; footer 56 high</td><td>Full-width target. Cancels completion timer and resets entry. Remains available when tiles lock.</td></tr>
+<tr><td>Theme segments</td><td>44px targets; 3px inset; radius 6</td><td>Selected accent and bold label. Theme changes every screen, including custom pickers.</td></tr>
+<tr><td>Switch</td><td>Whole row 216 × 48; track 36 × 22</td><td>Tap anywhere on row. Knob position plus colour communicates on/off.</td></tr>
+<tr><td>Picker trigger</td><td>216 × 48; label 13px; value 12px</td><td>Whole row opens a dedicated choice page. Current value and directional chevron remain visible.</td></tr>
+<tr><td>Choice row</td><td>216 × 48; 14px type; check 18px</td><td>Selection commits once and returns. Keyboard arrows move focus; Enter selects; Escape cancels.</td></tr>
+<tr><td>Sync action</td><td>216 × 48</td><td>Ready → disabled busy → Done or Retry. Repeated taps cannot start overlapping timers.</td></tr>
+<tr><td>Calibration target</td><td>44 × 44; 2px stroke</td><td>Four targets. Back cancels. Firmware must validate and persist actual calibration separately.</td></tr>
+</tbody></table></div></section>
+<section class="board-section" id="motion"><h2>Motion reference</h2><div class="motion-list">
+<div><strong>Press · 100ms</strong><p>Tile scales to 96% under the finger, then returns. No bounce; input never waits for animation.</p></div>
+<div><strong>Entry · 120ms</strong><p>Newly filled sequence mark grows from 70% to 100%. Feedback stays inside the sequence band.</p></div>
+<div><strong>Navigation · 180 / 140ms</strong><p>Forward enters from +16px; return from −10px. Ease out: cubic-bezier(.16,1,.3,1).</p></div>
+<div><strong>Control state · 120ms</strong><p>Theme selection and pressed surfaces change colour. Switch knob travels 14px.</p></div>
+<div><strong>Connecting · 1400ms loop</strong><p>Amber circle fades to 40% halfway through. Stop immediately when the state changes.</p></div>
+<div><strong>Syncing · 900ms loop</strong><p>Blue open ring rotates linearly. Retry uses two opacity dips in a 2400ms cycle.</p></div>
+</div><p>Reduced motion removes transforms, pulses and rotation. Solid / slashed / open-ring / square shapes still identify status. No shimmer, shadows or decorative animation needs porting.</p>
+<p class="small">Firmware handoff: use non-blocking LVGL animations; cancel old animations on state changes and screen destruction. Repaint only changed widgets. These timings are design targets, not measured CYD performance. Browser pixels preserve resolution, not physical inches; verify readability and touch accuracy on the actual panel.</p>
+<p class="small">Design rationale: quiet warm surfaces support the colour-code task; large flat controls suit touch; the gear saves header space; full-page pickers prevent clipping. Arial is a browser stand-in: choose the firmware font by measured glyph widths. Energy 1 / rhythm 1 / motion 2. Firmware and settings persistence are unchanged.</p>
+</section>
+</main>
+<script>
+const names={online:['Online','Solid green'],offline:['Offline','Slashed outline'],connecting:['Connecting','Amber pulse'],syncing:['Syncing','Blue open ring'],retrying:['Retrying','Red square, double pulse']};
+let theme='light',reduced=false,currentState='online';
+const frames=[...document.querySelectorAll('iframe')];
+function refresh(){frames.forEach(frame=>{const q=new URLSearchParams({embed:'1',view:frame.dataset.view,theme,state:frame===frames[0]?currentState:frame.dataset.state||'online'});if(reduced)q.set('motion','reduced');frame.src='terminal-ui-concepts.html?'+q;});document.querySelectorAll('.specimen').forEach(el=>{el.classList.toggle('dark',theme==='dark');el.classList.toggle('reduced',reduced);});}
+Object.entries(names).forEach(([state,[label,description]])=>{
+const specimen=document.createElement('div');specimen.className='specimen screen';specimen.innerHTML='<span class="dot" data-state="'+state+'" aria-hidden="true"></span><span class="state-label">'+label+'<small>'+description+'</small></span>';document.querySelector('#states').append(specimen);
+const button=document.createElement('button');button.textContent=label;button.setAttribute('aria-pressed',String(state===currentState));button.onclick=()=>{currentState=state;document.querySelectorAll('#state-controls button').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));refresh();};document.querySelector('#state-controls').append(button);
+});
+document.querySelectorAll('[data-theme]').forEach(button=>button.onclick=()=>{theme=button.dataset.theme;document.querySelectorAll('[data-theme]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));refresh();});
+document.querySelector('#reduce').onclick=function(){reduced=!reduced;this.setAttribute('aria-pressed',String(reduced));refresh();};
+const tokens={light:{bg:'#f3f2eb',surface:'#e5e8dd',ink:'#22362a',muted:'#58675b',line:'#bec6b7',accent:'#cddd8b',good:'#238342',busy:'#986400',sync:'#286bc4',error:'#b43730'},dark:{bg:'#18221c',surface:'#26332a',ink:'#eef2e6',muted:'#b4c1b1',line:'#52624f',accent:'#cddd8b',good:'#80df98',busy:'#efbe58',sync:'#85b6ff',error:'#ff9288'}};
+Object.entries(tokens).forEach(([mode,values])=>{const palette=document.createElement('div');palette.className='palette screen '+(mode==='dark'?'dark':'');palette.style.background=values.bg;palette.style.color=values.ink;palette.style.setProperty('--muted',values.muted);palette.innerHTML='<h3>'+mode[0].toUpperCase()+mode.slice(1)+'</h3>';Object.entries(values).forEach(([name,hex])=>{const row=document.createElement('div');row.className='token';row.innerHTML='<span><i class="swatch" style="background:'+hex+'"></i>'+name+'</span><code>'+hex.toUpperCase()+'</code>';palette.append(row);});document.querySelector('#palettes').append(palette);});
+refresh();
+</script>
+</body></html>

@@ -12,6 +12,7 @@
 #include "esp_netif_sntp.h"
 #include "esp_random.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -28,6 +29,41 @@ static bool s_ap_started;
 static uint8_t s_connect_attempts;
 static bool s_fallback_active;
 static httpd_handle_t s_server;
+static esp_timer_handle_t s_reconnect_timer;
+
+// Reconnecting directly from WIFI_EVENT_STA_DISCONNECTED creates a tight
+// event-loop loop when a router is unavailable or rejects the credentials.
+// Keep exactly one delayed retry outstanding and back off to protect both the
+// station and the access point while still recovering without intervention.
+static uint32_t reconnect_delay_ms(void)
+{
+    const uint8_t exponent = s_connect_attempts > 5 ? 5 : s_connect_attempts;
+    return 1000U << exponent;
+}
+
+static void schedule_reconnect(uint32_t delay_ms)
+{
+    if (!s_reconnect_timer) return;
+    esp_err_t stop_err = esp_timer_stop(s_reconnect_timer);
+    if (stop_err != ESP_OK && stop_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "could not reset reconnect timer: %s", esp_err_to_name(stop_err));
+    }
+    // esp_timer requires a positive timeout; one millisecond is effectively
+    // immediate while still keeping connects off the event callback.
+    uint64_t timeout_us = delay_ms ? (uint64_t)delay_ms * 1000ULL : 1000ULL;
+    esp_err_t start_err = esp_timer_start_once(s_reconnect_timer, timeout_us);
+    if (start_err != ESP_OK) ESP_LOGW(TAG, "could not schedule reconnect: %s", esp_err_to_name(start_err));
+}
+
+static void reconnect_timer_callback(void *argument)
+{
+    if (tk_network_connected()) return;
+    esp_err_t err = esp_wifi_connect();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Wi-Fi reconnect could not start: %s", esp_err_to_name(err));
+        schedule_reconnect(reconnect_delay_ms());
+    }
+}
 
 static const char SETUP_HTML_HEAD[] =
 "<!doctype html><html><head><meta name=viewport content='width=device-width,initial-scale=1'>"
@@ -165,9 +201,15 @@ static void start_sntp_once(void)
 
 static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
-    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) { s_connect_attempts = 0; s_fallback_active = false; tk_display_set_network_state(TK_DISPLAY_CONNECTING); esp_wifi_connect(); }
+    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
+        s_connect_attempts = 0;
+        s_fallback_active = false;
+        tk_display_set_network_state(TK_DISPLAY_CONNECTING);
+        schedule_reconnect(0);
+    }
     else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         xEventGroupClearBits(s_events, CONNECTED_BIT);
+        strlcpy(s_ip, "0.0.0.0", sizeof(s_ip));
         if (++s_connect_attempts >= 3 && !s_fallback_active) {
             s_fallback_active = true;
             tk_network_start_setup_ap();
@@ -177,14 +219,17 @@ static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *da
         // Keep attempting STA reconnection while the portal is visible so a
         // temporary router or internet outage heals on its own.
         tk_display_set_network_state(TK_DISPLAY_CONNECTING);
-        ESP_LOGW(TAG, "station disconnected (attempt %u); reconnecting", s_connect_attempts);
-        esp_wifi_connect();
+        const wifi_event_sta_disconnected_t *event = data;
+        uint32_t delay_ms = reconnect_delay_ms();
+        ESP_LOGW(TAG, "station disconnected (reason %u, attempt %u); retrying in %lu ms", event ? event->reason : 0, s_connect_attempts, (unsigned long)delay_ms);
+        schedule_reconnect(delay_ms);
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = data;
         snprintf(s_ip, sizeof(s_ip), IPSTR, IP2STR(&event->ip_info.ip));
         tk_display_set_ip(s_ip);
         xEventGroupSetBits(s_events, CONNECTED_BIT);
         s_connect_attempts = 0; s_fallback_active = false;
+        if (s_reconnect_timer) esp_timer_stop(s_reconnect_timer);
         tk_display_set_network_state(TK_DISPLAY_CONNECTING);
         // Sync is event-driven after the v0.2.26 rework: if the api task
         // already consumed its boot wake before Wi-Fi came up it would block
@@ -222,6 +267,11 @@ esp_err_t tk_network_init(void)
     esp_netif_create_default_wifi_ap();
     wifi_init_config_t init = WIFI_INIT_CONFIG_DEFAULT();
     ESP_RETURN_ON_ERROR(esp_wifi_init(&init), TAG, "wifi init");
+    const esp_timer_create_args_t reconnect_timer_args = {
+        .callback = reconnect_timer_callback,
+        .name = "wifi_reconnect",
+    };
+    ESP_RETURN_ON_ERROR(esp_timer_create(&reconnect_timer_args, &s_reconnect_timer), TAG, "reconnect timer");
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, event_handler, NULL));
     uint8_t mac[6]; esp_read_mac(mac, ESP_MAC_WIFI_STA);
@@ -232,8 +282,10 @@ esp_err_t tk_network_init(void)
         wifi_config_t station = {0};
         strlcpy((char *)station.sta.ssid, stored->ssid, sizeof(station.sta.ssid));
         strlcpy((char *)station.sta.password, stored->wifi_password, sizeof(station.sta.password));
-        station.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
-        station.sta.scan_method = WIFI_FAST_SCAN;
+        // Do not reject WPA3 transition networks before trying credentials.
+        // FAST_SCAN may stop at a weak, incompatible AP with a shared SSID.
+        station.sta.threshold.authmode = WIFI_AUTH_OPEN;
+        station.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
         station.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
         station.sta.listen_interval = 3;
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &station));
@@ -279,7 +331,10 @@ void tk_network_resume(void)
         // Disconnecting an orphaned station makes the normal event handler
         // perform its bounded recovery sequence. A disconnected station can
         // simply be connected directly.
-        if (association_lost && had_ip) esp_wifi_disconnect();
-        else esp_wifi_connect();
+        if (association_lost && had_ip) {
+            esp_wifi_disconnect();
+        } else {
+            schedule_reconnect(0);
+        }
     }
 }

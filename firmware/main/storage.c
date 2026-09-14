@@ -88,6 +88,12 @@ esp_err_t tk_storage_init(void)
     if (s_code_queue.count > TK_MAX_CODE_REQUESTS) memset(&s_code_queue, 0, sizeof(s_code_queue));
     if (!s_config.touch_x_scale) s_config.touch_x_scale = 1000;
     if (!s_config.touch_y_scale) s_config.touch_y_scale = 1000;
+    if (s_config.ui_preferences_version != 1) {
+        s_config.ui_preferences_version = 1;
+        s_config.reduce_motion = false;
+        s_config.local_intervals_override = false;
+        s_config.local_power_override = false;
+    }
     if (!s_config.sync_interval_seconds) s_config.sync_interval_seconds = 5;
     if (!s_config.full_sync_interval_seconds) s_config.full_sync_interval_seconds = 300;
     // Existing installations predate this field, so use a sensible screen
@@ -105,8 +111,9 @@ const tk_config_t *tk_config_get(void) { return &s_config; }
 
 esp_err_t tk_config_save(const tk_config_t *config)
 {
-    memcpy(&s_config, config, sizeof(s_config));
-    return save_blob("config", &s_config, sizeof(s_config));
+    esp_err_t err = save_blob("config", config, sizeof(*config));
+    if (err == ESP_OK) memcpy(&s_config, config, sizeof(s_config));
+    return err;
 }
 
 tk_state_t *tk_state_lock(void)

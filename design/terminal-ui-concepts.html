@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TimeTone terminal preview</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;background:#dedfd9;font-family:Arial,Helvetica,sans-serif}button,select{font:inherit}button{cursor:pointer}[hidden]{display:none!important}button:focus-visible,select:focus-visible{outline:2px solid var(--ink);outline-offset:2px}button:disabled{opacity:.5;cursor:default}
+.preview{padding:24px 8px}.bezel{padding:10px;background:#242925;border-radius:12px;box-shadow:0 14px 36px #17221b25}.screen{width:240px;height:320px;overflow:hidden;--bg:#f3f2eb;--surface:#e5e8dd;--ink:#22362a;--muted:#58675b;--line:#bec6b7;--accent:#cddd8b;background:var(--bg);color:var(--ink);color-scheme:light}.screen.dark{--bg:#18221c;--surface:#26332a;--ink:#eef2e6;--muted:#b4c1b1;--line:#52624f;color-scheme:dark}
+.page{height:320px;display:flex;flex-direction:column}.header{height:48px;flex:none;padding:0 12px;display:flex;align-items:center;gap:9px;border-bottom:1px solid var(--line)}.brand{font-size:14px;font-weight:700;letter-spacing:-.4px}.dot{width:7px;height:7px;border-radius:50%;background:#318a49}.dark .dot{background:#8bd990}.header button{margin-left:auto;height:44px;border:0;padding:0 4px;background:transparent;color:var(--ink);font-size:13px}.sequence{height:40px;display:flex;align-items:center;justify-content:center;gap:10px;flex:none}.sequence i{width:9px;height:9px;border:1px solid var(--muted);border-radius:50%}.sequence i.filled{background:var(--ink);border-color:var(--ink)}
+.tiles{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px;padding:0 12px;height:176px;flex:none}.tile{border:0;border-radius:9px;box-shadow:inset 0 -2px #00000012}.tile:active{filter:brightness(.85)}.coral{background:#ef6f61}.ocean{background:#3d8bfd}.lime{background:#9acb3c}.violet{background:#9b72cf}.bottom{height:56px;padding:6px 12px;display:flex;align-items:center;justify-content:space-between;gap:8px}.feedback{font-size:12px;color:var(--muted)}.clear{height:44px;min-width:60px;border:0;background:transparent;color:var(--ink);font-size:13px}
+.scroll{flex:1;min-height:0;overflow-y:auto;padding:0 12px 12px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}.group{margin:16px 0 6px;font-size:11px;color:var(--muted);font-weight:700}.themes{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:3px;background:var(--surface);border-radius:8px}.themes button{height:44px;border:0;border-radius:6px;background:transparent;color:var(--ink);font-size:13px}.themes button[aria-pressed=true]{background:var(--accent);color:#22362a;font-weight:700}.row{width:100%;min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:8px;border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink);font-size:12px;text-align:left}.row select{max-width:96px;min-height:44px;border:0;background:var(--bg);color:var(--ink);font-size:12px}.note{font-size:11px;color:var(--muted);line-height:16px}.caption{display:flex;justify-content:space-between;margin-top:14px;font-size:11px;color:#536052}.calibration{flex:1;position:relative}.target{position:absolute;width:44px;height:44px;border:2px solid var(--ink);border-radius:50%;background:var(--accent);color:#22362a;font-size:24px}.calibration p{text-align:center;font-size:12px;margin:24px 12px}
+</style>
+<style>
+/* Touch targets are measured on the native 240 × 320 canvas. */
+.header{height:52px;gap:12px}.dot{width:12px;height:12px;flex:none;background:#238342;box-shadow:0 0 0 3px var(--bg),0 0 0 4px var(--line)}.dark .dot{background:#80df98}
+.header .gear{width:44px;height:44px;padding:10px;display:grid;place-items:center;border-radius:8px;background:var(--surface)}.gear svg{width:24px;height:24px;display:block}
+.sequence{height:36px;padding:0 12px;justify-content:space-between;gap:6px}.dots{display:flex;gap:7px}.sequence i{width:10px;height:10px}.feedback{font-size:12px;max-width:142px;line-height:14px}
+.bottom{height:56px;padding:6px 12px}.clear{width:100%;height:44px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-size:15px;font-weight:700}.clear:active,.gear:active{background:var(--accent);color:#22362a}
+</style>
+<link rel="stylesheet" href="terminal-components.css">
+</head>
+<body>
+<main class="preview">
+<div class="bezel"><div class="screen" id="screen">
+<section class="page" id="keypad" aria-label="Clock in or out">
+<header class="header"><span class="brand">TimeTone</span><span class="dot" role="img" aria-label="Connected (simulated)"></span><button class="gear" id="open" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 3 .6-1h4.8l.6 3 2 1 2.8-.8 2.4 4.1-2.2 2v2.4l2.2 2-2.4 4.1-2.8-.8-2 1-.6 3H9.6L9 20l-2-1-2.8.8-2.4-4.1 2.2-2v-2.4l-2.2-2L4.2 5.2 7 6l2-1Z"/><circle cx="12" cy="12" r="3"/></svg></button></header>
+<div class="sequence"><span class="feedback" id="feedback" role="status">Your four colours</span><span class="dots" id="sequence" aria-label="0 of 4 colours selected"><i></i><i></i><i></i><i></i></span></div>
+<div class="tiles"><button class="tile coral" aria-label="Coral"></button><button class="tile ocean" aria-label="Ocean"></button><button class="tile lime" aria-label="Lime"></button><button class="tile violet" aria-label="Violet"></button></div>
+<footer class="bottom"><button class="clear" id="clear">Clear</button></footer>
+</section>
+<section class="page" id="settings" aria-label="Settings" hidden>
+<header class="header"><strong class="brand">Settings</strong><button id="done">Done</button></header>
+<div class="scroll">
+<p class="group">Appearance</p><div class="themes" role="group" aria-label="Theme"><button data-theme="light" aria-pressed="true">Light</button><button data-theme="dark" aria-pressed="false">Dark</button></div>
+<p class="group">Display</p>
+<label class="row">Screen off<select id="screen-off" aria-label="Screen off"><option value="30">30 sec</option><option value="60">1 min</option><option value="120">2 min</option><option value="300">5 min</option><option value="0">Never</option></select></label>
+<label class="row">Low power<select id="low-power" aria-label="Low power"><option value="120">2 min</option><option value="300">5 min</option><option value="600">10 min</option><option value="0">Never</option></select></label>
+<button class="row" id="calibrate">Calibrate touch<span aria-hidden="true">›</span></button>
+<p class="group">Connection</p><button class="row" id="sync">Sync now<span id="sync-status" aria-live="polite">›</span></button>
+<label class="row">Health check<select aria-label="Health check"><option>5 sec</option><option>15 sec</option><option>30 sec</option><option>60 sec</option></select></label>
+<label class="row">Settings sync<select aria-label="Settings sync"><option>5 min</option><option>10 min</option><option>30 min</option></select></label>
+<p class="note">Preview only. Changes stay in this page.</p>
+</div></section>
+<section class="page" id="calibration" aria-label="Touch calibration" hidden><header class="header"><strong class="brand">Calibrate touch</strong><button id="back">Back</button></header><div class="calibration"><p id="hint">Tap the target</p><button class="target" id="target" aria-label="Calibration target">+</button></div></section>
+</div></div>
+<div class="caption"><span>240 × 320</span><span>Interactive mockup</span></div>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const pages=['keypad','settings','calibration'];
+let count=0,timer,step=0;
+function show(id){pages.forEach(page=>$('#'+page).hidden=page!==id);$('#'+id+' button')?.focus();}
+function render(){document.querySelectorAll('#sequence i').forEach((dot,i)=>dot.classList.toggle('filled',i<count));$('#sequence').setAttribute('aria-label',count+' of 4 colours selected');document.querySelectorAll('.tile').forEach(tile=>tile.disabled=count===4);}
+function reset(){clearTimeout(timer);count=0;render();$('#feedback').textContent='Your four colours';}
+document.querySelectorAll('.tile').forEach(tile=>tile.onclick=()=>{if(count===4)return;count++;render();$('#feedback').textContent=count===4?'Code received (demo)':count+' of 4';if(count===4)timer=setTimeout(reset,1400);});
+$('#clear').onclick=reset;$('#open').onclick=()=>{reset();show('settings');};$('#done').onclick=()=>show('keypad');
+document.querySelectorAll('[data-theme]').forEach(button=>button.onclick=()=>{$('#screen').classList.toggle('dark',button.dataset.theme==='dark');document.querySelectorAll('[data-theme]').forEach(item=>item.setAttribute('aria-pressed',String(item===button)));});
+$('#sync').onclick=()=>{$('#sync').disabled=true;$('#sync-status').textContent='Syncing…';setTimeout(()=>{$('#sync-status').textContent='Done (demo)';$('#sync').disabled=false;},800);};
+function validatePower(){const off=Number($('#screen-off').value),low=Number($('#low-power').value);if(low&&(!off||low<off))$('#low-power').value='0';}
+$('#screen-off').onchange=validatePower;$('#low-power').onchange=validatePower;
+const positions=[[12,56],[172,56],[172,206],[12,206]];
+function positionTarget(){const [left,top]=positions[step];$('#target').style.left=left+'px';$('#target').style.top=top+'px';$('#target').setAttribute('aria-label','Calibration target '+(step+1)+' of 4');$('#hint').textContent='Tap target '+(step+1)+' of 4';}
+$('#calibrate').onclick=()=>{step=0;positionTarget();show('calibration');};
+$('#target').onclick=()=>{step++;if(step===4){show('settings');$('#calibrate').firstChild.textContent='Calibrated (demo)';}else positionTarget();};
+$('#back').onclick=()=>show('settings');
+document.addEventListener('keydown',event=>{if(event.key==='Escape')show($('#calibration').hidden?'keypad':'settings');});
+</script>
+<script src="terminal-components.js"></script>
+</body>
+</html>

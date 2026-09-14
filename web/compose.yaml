@@ -1,5 +1,6 @@
 services:
   timekeep:
+    image: timetone:release
     build: .
     restart: unless-stopped
     ports:
@@ -16,6 +17,6 @@ services:
       # Enables the authenticated in-app updater to rebuild this compose
       # service in place. Remove this mount if updates should be manual only.
       - /var/run/docker.sock:/var/run/docker.sock
-      - ..:/host
+      - ${TIMETONE_HOST_ROOT:-..}:/host
 volumes:
   timekeep-data:

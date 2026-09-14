@@ -1,14 +1,22 @@
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { requireAuth } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
+function statusPath() {
+  if (process.env.TIMETONE_INSTALL_MODE === "docker" && fsSync.existsSync("/host/web")) {
+    return "/host/web/.timetone-update-status.json";
+  }
+  const databasePath = process.env.DATABASE_PATH || path.join(process.cwd(), "data", "timekeep.db");
+  return path.join(path.dirname(databasePath), "update-status.json");
+}
+
 export async function GET() {
   await requireAuth();
-  const databasePath = process.env.DATABASE_PATH || path.join(process.cwd(), "data", "timekeep.db");
   try {
-    const status = JSON.parse(await fs.readFile(path.join(path.dirname(databasePath), "update-status.json"), "utf8")) as { status?: string; version?: string; message?: string };
+    const status = JSON.parse(await fs.readFile(statusPath(), "utf8")) as { status?: string; version?: string; message?: string };
     // A Docker compose rebuild removes the old container while the updater
     // process is still running, so its final write may never happen. Confirm
     // completion from the version baked into the new container instead.

@@ -1,0 +1,38 @@
+name: Prebuilt release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release version
+        run: test "v$(cat VERSION)" = "$GITHUB_REF_NAME"
+      - name: Build standalone runtime
+        run: docker build -f scripts/Dockerfile.release --target artifact --output type=local,dest=/tmp/runtime web
+      - name: Build Docker image
+        run: docker build -f scripts/Dockerfile.release --target runtime -t timetone:release web
+      - name: Build firmware
+        run: docker run --rm -v "$PWD:/project" -w /project/firmware espressif/idf:v6.0.1 idf.py build
+      - name: Package assets
+        run: |
+          mkdir -p /tmp/package/web/.next dist
+          git archive HEAD | tar -x -C /tmp/package
+          sudo cp -a /tmp/runtime/standalone /tmp/package/web/.next/
+          tar -czf dist/timetone-web.tar.gz -C /tmp/package .
+          docker save timetone:release | gzip > dist/timetone-docker.tar.gz
+          cp firmware/build/timetone.bin "dist/timetone-$(cat VERSION).bin"
+          cd dist
+          sha256sum *.gz *.bin > SHA256SUMS
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release already exists; refusing to overwrite verified assets."
+            exit 0
+          fi
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "TimeTone $GITHUB_REF_NAME" --generate-notes

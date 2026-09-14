@@ -23,7 +23,10 @@ export async function POST(request: Request) {
     db.prepare("UPDATE devices SET name = ?, firmware_version = ?, ip_address = ? WHERE id = ?")
       .run(deviceName, firmwareVersion || null, ipAddress || null, existing.id);
     publishLiveUpdate("device");
-    return Response.json({ ok: true, approved: existing.approved === 1, deviceId: existing.id });
+    return Response.json(
+      { ok: true, approved: existing.approved === 1, deviceId: existing.id },
+      { status: existing.approved === 1 ? 200 : 202 },
+    );
   }
   const id = crypto.randomUUID();
   db.prepare("INSERT INTO devices (id, name, token_digest, last_seen_at, firmware_version, ip_address, pending_events, created_at, approved) VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0)")
