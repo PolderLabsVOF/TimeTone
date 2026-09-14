@@ -21,6 +21,7 @@ All notable TimeTone releases are documented here. Versions follow
 - Restructure Settings into workspace summaries, grouped controls, a settings map, and separate security/migration/update areas.
 - Replace Settings anchor navigation with real keyboard-accessible tabbed sections; workspace fields remain associated with one shared save action across tabs.
 - Fix Settings tab strip sizing so labels and active/focus states are not clipped on narrow or wide layouts.
+- Overhaul the Who's here canvas with distributed node placement, independent drift, spacing forces, drag momentum, and keyboard movement.
 
 ## [0.3.3] - 2026-09-14
 
