@@ -3,6 +3,13 @@
 All notable TimeTone releases are documented here. Versions follow
 [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## [0.3.2] - 2026-09-14
+
+- Add a release preview before installation or update work begins, including the exact stable version selected from GitHub.
+- Add a colored TimeTone ASCII installer mark, stage bars, and dependency-free download animation while keeping redirected logs readable.
+- Render the branded installer mark before the update handoff, so the header appears ahead of any download rather than only after it completes.
+- Preserve failed download exit codes so the installer stops instead of continuing after an unsuccessful release fetch.
+
 ## [0.3.1] - 2026-09-14
 
 - Restore scheduled terminal heartbeats and configuration refreshes so a stable terminal receives device settings, sync requests, OTA availability, and queued-event retries without needing a reconnect or wake.
