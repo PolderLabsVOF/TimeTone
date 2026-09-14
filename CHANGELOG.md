@@ -17,6 +17,7 @@ All notable TimeTone releases are documented here. Versions follow
 - Package Next.js static and public assets into the native dev runtime so the dashboard is styled after a dev install.
 - Let users clear an entry's end time in the edit and manual-entry forms to save it as an open shift.
 - Reset the manual-entry form after a successful save and show a confirmation message.
+- Restructure the Devices page into fleet summary, terminal cards, onboarding, and status guidance sections.
 
 ## [0.3.3] - 2026-09-14
 
