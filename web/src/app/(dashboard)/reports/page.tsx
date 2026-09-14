@@ -1,6 +1,7 @@
 import { addDays, eachDayOfInterval, endOfDay, endOfWeek, format, startOfDay, startOfMonth, startOfWeek, subDays } from "date-fns";
 import { BarChart3, Download, FileSpreadsheet, SlidersHorizontal, CalendarDays, ScanLine } from "lucide-react";
 import { PageHeading } from "@/components/page-heading";
+import { EntriesFilterDates } from "@/components/entries-filter-dates";
 import { Button } from "@/components/ui/button";
 import { durationMinutes, formatDuration, roundDuration } from "@/lib/domain";
 import { getEmployees, getFilteredEntries, getSettings } from "@/lib/db";
@@ -13,8 +14,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   const settings = getSettings();
   const employees = getEmployees();
   const windowDays = Math.max(1, Math.min(365, Number(query.window || settings.default_report_window)));
-  const end = query.to ? endOfDay(new Date(query.to)) : new Date();
-  const start = query.from ? startOfDay(new Date(query.from)) : startOfDay(subDays(end, windowDays - 1));
+  const end = query.to ? endOfDay(new Date(`${query.to}T00:00:00`)) : new Date();
+  const start = query.from ? startOfDay(new Date(`${query.from}T00:00:00`)) : startOfDay(subDays(end, windowDays - 1));
   const employeeId = query.employee || undefined;
   const entries = getFilteredEntries({ from: start.toISOString(), to: new Date(end.getTime() + 1).toISOString(), employeeId });
   const totals = new Map<string, number>();
@@ -54,7 +55,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       <span className="grid size-9 place-items-center rounded-lg bg-[#eef4e4] text-[#526b38]"><SlidersHorizontal className="size-4" /></span>
       <select name="window" defaultValue={String(windowDays)} className="h-9 rounded-lg border border-black/10 bg-white px-3 text-sm"><option value="7">Last 7 days</option><option value="14">Last 14 days</option><option value="30">Last 30 days</option><option value="60">Last 2 months</option><option value="90">Last 90 days</option><option value="365">Last 12 months</option></select>
       <select name="employee" defaultValue={employeeId || ""} className="h-9 rounded-lg border border-black/10 bg-white px-3 text-sm"><option value="">All employees</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select>
-      <div className="flex gap-2"><input aria-label="From date" name="from" type="date" defaultValue={query.from} className="h-9 min-w-0 rounded-lg border border-black/10 px-2 text-sm" /><input aria-label="To date" name="to" type="date" defaultValue={query.to} className="h-9 min-w-0 rounded-lg border border-black/10 px-2 text-sm" /></div>
+      <EntriesFilterDates from={query.from} to={query.to} />
       <Button type="submit" variant="outline">Apply window</Button>
     </form>
     <section className="grid gap-4 md:grid-cols-3"><Metric label="Employee time" value={formatDuration(totalMinutes)} detail={`${entries.length} session${entries.length === 1 ? "" : "s"}`} /><Metric label="Average office occupation" value={formatDuration(averageOccupancyMinutes)} detail={occupiedDays.length ? `${occupiedDays.length} attended day${occupiedDays.length === 1 ? "" : "s"} · overlapping time counted once` : "No attended days in this window"} /><Metric label="People with time" value={String(rows.filter((row) => row.minutes > 0).length)} detail={`of ${rows.length} in the selected view`} /></section>

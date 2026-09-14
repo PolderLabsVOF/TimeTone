@@ -18,6 +18,13 @@
 #include "display.h"
 
 static const char *TAG = "api";
+// HTTP, TLS and the largest working sets in the firmware all run on this task.
+// Its biggest single frame is under a kilobyte, so the size below is headroom
+// against the unexpected: an mbedTLS handshake, cJSON recursion, and the
+// interrupt frames that land on whichever task is running. Raising it from 8192
+// spends 12,288 bytes of DRAM heap; the headroom log below is what tells us
+// whether that was needed, before an overflow corrupts the heap instead.
+#define TK_API_TASK_STACK 20480
 static SemaphoreHandle_t s_wake;
 static bool s_ota_in_progress;
 static volatile bool s_force_config;
@@ -322,9 +329,22 @@ static esp_err_t push_code_requests(void)
     return ESP_OK;
 }
 
-static esp_err_t push_events(void)
+// The upload reply carries one result object per event sent, and request()'s
+// collector fails the whole request (ESP_ERR_NO_MEM from http_event) when the
+// body does not fit, so this cannot be shrunk below a full batch of
+// acknowledgements.
+#define TK_EVENTS_RESPONSE_MAX 4096
+
+// An event upload needs the events snapshot the body is built from, a 4 KiB
+// response body, and the rollback copy tk_state_save() restores on failure.
+// Declared as locals they were 17,392 bytes of frame in push_events(), on a
+// task whose stack was 8,192 bytes: the frame ran off the bottom of the stack
+// into the heap underneath it. push_events() is only reachable from the
+// connected sync path (api_task), which is why the terminal reset only while
+// connected, and with CONFIG_ESP_COREDUMP_ENABLE_TO_NONE it left no evidence.
+// The working set is now owned by push_events() and passed in.
+static esp_err_t upload_events(tk_event_t *events, char *response, tk_event_t *original_events)
 {
-    tk_event_t events[TK_MAX_EVENTS];
     int count;
     tk_state_t *state = tk_state_lock();
     count = state->event_count;
@@ -343,8 +363,7 @@ static esp_err_t push_events(void)
     }
     char *body = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
-    char response[4096];
-    int status = request("/api/device/v1/events", HTTP_METHOD_POST, body, response, sizeof(response));
+    int status = request("/api/device/v1/events", HTTP_METHOD_POST, body, response, TK_EVENTS_RESPONSE_MAX);
     free(body);
     if (status != 200) return ESP_FAIL;
 
@@ -381,7 +400,6 @@ static esp_err_t push_events(void)
 
     state = tk_state_lock();
     uint16_t original_count = state->event_count;
-    tk_event_t original_events[TK_MAX_EVENTS];
     memcpy(original_events, state->events, original_count * sizeof(tk_event_t));
     int removed = 0;
     int retained = 0;
@@ -416,6 +434,41 @@ static esp_err_t push_events(void)
     return ESP_OK;
 }
 
+// Owns the working set so every exit path from upload_events() frees it.
+//
+// Heap rather than file-scope statics on purpose: statics would spend the same
+// ~17 KiB permanently out of the ~198 KiB runtime heap (_heap_start to
+// _heap_end, 197.9 KiB) that Wi-Fi, mbedTLS and every task stack share at run
+// time, while the heap cost here lasts only for the duration of the upload.
+// The 12,288-byte stack raise above costs about 6% of that heap, not the ~21%
+// the "DRAM Remain" line in `idf.py size` implies: that figure is measured
+// inside the dram0_0_seg linker fence, not against the heap. That 17 KiB peak
+// is the same size as the 18 KiB buffer fetch_config() already allocates on
+// this task, and the two never overlap. Allocation failure is survivable: the
+// queue is durable in NVS and the caller retries on the next healthy heartbeat.
+static esp_err_t push_events(void)
+{
+    const size_t events_size = TK_MAX_EVENTS * sizeof(tk_event_t);
+    tk_event_t *events = malloc(events_size);
+    char *response = malloc(TK_EVENTS_RESPONSE_MAX);
+    tk_event_t *original_events = malloc(events_size);
+    if (!events || !response || !original_events) {
+        // Not fatal: the queue is durable in NVS and the next healthy
+        // heartbeat retries the upload.
+        ESP_LOGW(TAG, "no heap for event upload scratch (%u bytes); will retry",
+                 (unsigned)(2 * events_size + TK_EVENTS_RESPONSE_MAX));
+        free(events);
+        free(response);
+        free(original_events);
+        return ESP_ERR_NO_MEM;
+    }
+    esp_err_t err = upload_events(events, response, original_events);
+    free(events);
+    free(response);
+    free(original_events);
+    return err;
+}
+
 static int warm_clock_connection(void)
 {
     if (s_clock_connection_warmed) return 200;
@@ -428,6 +481,25 @@ static int warm_clock_connection(void)
         ESP_LOGI(TAG, "clock connection warmed");
     }
     return status;
+}
+
+// The push_events() overflow corrupted the heap and rebooted with no evidence,
+// so log the headroom the health pass actually has (and the heap, which is the
+// other budget this task competes for) rather than discovering the next one by
+// crash. uxTaskGetStackHighWaterMark() is the smallest free stack ever seen, in
+// words. Rate-limited: the health pass can run as often as every few seconds.
+#define TK_HEALTH_LOG_INTERVAL_US (60 * 1000000LL)
+static void log_task_headroom(void)
+{
+    static int64_t s_last_log_us;
+    int64_t now_us = esp_timer_get_time();
+    if (now_us - s_last_log_us < TK_HEALTH_LOG_INTERVAL_US) return;
+    s_last_log_us = now_us;
+    ESP_LOGI(TAG, "api task stack headroom %u of %u bytes; heap free %u, minimum %u",
+             (unsigned)(uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t)),
+             (unsigned)TK_API_TASK_STACK,
+             (unsigned)esp_get_free_heap_size(),
+             (unsigned)esp_get_minimum_free_heap_size());
 }
 
 static int heartbeat(void)
@@ -511,6 +583,7 @@ static void api_task(void *argument)
             int health_status = heartbeat();
             if (health_status == 200) {
                 s_sync_failures = 0;
+                log_task_headroom();
                 next_health = now + seconds_to_ticks(config->sync_interval_seconds, 5);
                 // heartbeat() sets this when the dashboard explicitly requests
                 // a sync. Consume it in this pass so a stable connection picks
@@ -557,7 +630,7 @@ esp_err_t tk_api_start(void)
 {
     s_wake = xSemaphoreCreateBinary();
     if (!s_wake) return ESP_ERR_NO_MEM;
-    if (xTaskCreate(api_task, "timekeep_api", 8192, NULL, 4, NULL) != pdPASS) return ESP_ERR_NO_MEM;
+    if (xTaskCreate(api_task, "timekeep_api", TK_API_TASK_STACK, NULL, 4, NULL) != pdPASS) return ESP_ERR_NO_MEM;
     s_force_config = true;
     xSemaphoreGive(s_wake);
     return ESP_OK;

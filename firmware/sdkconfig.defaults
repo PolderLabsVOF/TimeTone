@@ -13,6 +13,23 @@ CONFIG_LV_USE_LABEL=y
 CONFIG_LV_USE_SPINNER=y
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 
+# LVGL failures are silent without these. lv_malloc() failure runs
+# LV_ASSERT_MALLOC -> LV_ASSERT_HANDLER, which is `while(1);` and is NOT
+# overridable from Kconfig, so a pool-exhaustion freeze produces no output at
+# all: the LV_LOG_ERROR that names the failing expression compiles away. The
+# print callback in display.c (lv_log_register_print_cb) routes these into
+# ESP_LOGE; without a callback or CONFIG_LV_LOG_PRINTF, lv_log_add() formats the
+# message and drops it.
+CONFIG_LV_USE_LOG=y
+CONFIG_LV_LOG_LEVEL_ERROR=y
+
+# Crash forensics. The crash this firmware shipped with was heap corruption
+# from a task-stack overflow, and CONFIG_ESP_COREDUMP_ENABLE_TO_NONE left no
+# evidence, so it read as a random reboot. ESP_COREDUMP_ENABLE also selects the
+# ELF data format (CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF). The dump is written to
+# the "coredump" partition in partitions.csv.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+
 
 # Phase 1 of the TimeTone port. Design type sizes are 11/12/13/14/15px; LVGL
 # ships discrete Montserrat sizes, so we add 12 (for the 11/12/13 role) and 16
