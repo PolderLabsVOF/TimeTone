@@ -22,11 +22,11 @@ const icons = {
 export function SettingsTabs({ defaultValue, tabs }: { defaultValue: string; tabs: SettingsTab[] }) {
   return (
     <Tabs defaultValue={defaultValue} className="w-full">
-      <TabsList className="grid w-full grid-cols-2 gap-1 rounded-xl bg-[#eef0eb] p-1 dark:bg-[#243127] sm:grid-cols-3 lg:grid-cols-5">
+      <TabsList className="!h-auto min-h-14 grid w-full grid-cols-2 items-stretch gap-1 rounded-xl bg-[#eef0eb] p-1 dark:bg-[#243127] sm:grid-cols-3 lg:grid-cols-5">
         {tabs.map((tab) => {
           const Icon = icons[tab.icon];
           return (
-            <TabsTrigger key={tab.value} value={tab.value} className="h-auto min-h-11 justify-start px-3 py-2 text-left">
+            <TabsTrigger key={tab.value} value={tab.value} className="!h-auto min-h-12 min-w-0 justify-center px-2 py-2 text-center text-xs leading-4 whitespace-normal sm:px-3 sm:text-sm">
               <Icon className="size-4" />
               <span>{tab.label}</span>
             </TabsTrigger>
