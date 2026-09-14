@@ -19,17 +19,12 @@ type Props = {
   defaultValue?: string;
   required?: boolean;
   /**
-   * Tone of the surface this field is placed on. Same prop and values as `DatePicker`, so
-   * both components read the same way. The fallback is "dark" only because the one caller
-   * that omits it is the dashboard's manual-entry card (`entries/page.tsx`, `bg-[#17211b]`).
+   * Tone of the surface this field is placed on. Required, and the same prop and values as
+   * `DatePicker`, so both components read the same way and neither has to guess: `black` and
+   * `white` are inverting theme tokens, so the class names alone do not tell you the tone
+   * that actually renders.
    */
-  surface?: "light" | "dark";
-  /**
-   * @deprecated Boolean spelling of `surface="light"`, still passed by
-   * `edit-entry-popover.tsx`. Use `surface` instead: `black`/`white` are inverting theme
-   * tokens, so the class names alone do not tell you the rendered tone.
-   */
-  light?: boolean;
+  surface: "light" | "dark";
   size?: "sm" | "md";
 };
 
@@ -42,7 +37,7 @@ function splitDateTime(value?: string) {
   return { date, time: time.slice(0, 5) };
 }
 
-export function TimeEntryDateField({ label, name, id, defaultValue, required, surface, light, size = "md" }: Props) {
+export function TimeEntryDateField({ label, name, id, defaultValue, required, surface, size = "md" }: Props) {
   const initial = splitDateTime(defaultValue);
   const generatedId = useId();
   const fieldId = id || `${name}-${generatedId}`;
@@ -99,8 +94,7 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, su
     setOpen(false);
   };
   const hour = time ? time.slice(0, 2) : "09";
-  const tone = surface ?? (light ? "light" : "dark");
-  const isLight = tone === "light";
+  const isLight = surface === "light";
   // The same field renders as "Clock in" or "Clock out", so the error must follow the label.
   const missingTimeMessage = `Choose a ${label.toLowerCase().replaceAll(" ", "-")} time.`;
   const controlHeight = size === "sm" ? "h-9" : "h-10";
@@ -133,7 +127,7 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, su
             value={date}
             onChange={(v) => { setDate(v); if (v) setMissingDate(false); }}
             placeholder="Select date"
-            surface={tone}
+            surface={surface}
             size={size}
             aria-label={label}
           />

@@ -146,8 +146,8 @@ export default async function EntriesPage({ searchParams }: { searchParams: Prom
           </p>
           <form action={addManualEntry} className="mt-6 space-y-4">
             <EmployeeMultiSelect employees={employees} />
-            <TimeEntryDateField label="Clock in" name="clock_in" required />
-            <TimeEntryDateField label="Clock out" name="clock_out" />
+            <TimeEntryDateField label="Clock in" name="clock_in" required surface="dark" />
+            <TimeEntryDateField label="Clock out" name="clock_out" surface="dark" />
             <div className="space-y-2">
               <Label htmlFor="note">Note</Label>
               <Input
