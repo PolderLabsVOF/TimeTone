@@ -13,6 +13,14 @@ STATUS_FILE=${TIMETONE_UPDATE_STATUS:-$CURRENT_ROOT/web/data/update-status.json}
 SWAPPED=false
 SERVICE_STOPPED=false
 NEW_PID=""
+NATIVE_SERVICE_NAME=timetone.service
+
+native_service_available() {
+  command -v systemctl >/dev/null 2>&1 || return 1
+  SERVICE_FILE="${HOME:-$(getent passwd "$(id -un)" | cut -d: -f6)}/.config/systemd/user/$NATIVE_SERVICE_NAME"
+  [ -f "$SERVICE_FILE" ] || return 1
+  systemctl --user cat "$NATIVE_SERVICE_NAME" >/dev/null 2>&1
+}
 
 write_status() {
   mkdir -p "$(dirname "$STATUS_FILE")"
@@ -26,6 +34,10 @@ valid_pid() {
 
 stop_pid() {
   STOP_PID=$1
+  if native_service_available; then
+    systemctl --user stop "$NATIVE_SERVICE_NAME"
+    return
+  fi
   valid_pid "$STOP_PID" || return 0
   kill -0 "$STOP_PID" 2>/dev/null || return 0
   kill "$STOP_PID" 2>/dev/null || true
@@ -39,6 +51,11 @@ stop_pid() {
 
 launch_server() {
   LAUNCH_ROOT=$1
+  if native_service_available; then
+    systemctl --user enable --now "$NATIVE_SERVICE_NAME"
+    NEW_PID=$(systemctl --user show "$NATIVE_SERVICE_NAME" --property=MainPID --value 2>/dev/null || true)
+    return
+  fi
   LAUNCH_PORT=$(sed -n 's/^TIMETONE_PORT=//p' "$LAUNCH_ROOT/web/.env" | head -n 1)
   case "$LAUNCH_PORT" in ''|*[!0-9]*) LAUNCH_PORT=3000 ;; esac
   (
