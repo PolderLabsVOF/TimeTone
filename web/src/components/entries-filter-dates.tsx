@@ -21,6 +21,10 @@ type FilterDateProps = {
  * hidden input, so the cleared state has to reach the DOM before the form is
  * submitted; `flushSync` gives that ordering, and `requestSubmit` keeps this
  * button out of implicit form submission (Enter in the search field).
+ *
+ * `label` is the bare field name ("From"), not "From date": DatePicker appends
+ * the field kind itself, so naming this "From date" would render the trigger as
+ * "From date date, ...".
  */
 function FilterDate({ label, name, value, onChange }: FilterDateProps) {
   const clear = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -44,8 +48,8 @@ function FilterDate({ label, name, value, onChange }: FilterDateProps) {
         <button
           type="button"
           onClick={clear}
-          aria-label={`Clear ${label.toLowerCase()}`}
-          title={`Clear ${label.toLowerCase()}`}
+          aria-label={`Clear ${label.toLowerCase()} date`}
+          title={`Clear ${label.toLowerCase()} date`}
           className={cn(
             "grid size-8 shrink-0 place-items-center rounded-lg text-black/45 transition",
             "hover:bg-black/[.04] hover:text-black focus:outline-none focus:ring-2 focus:ring-[#d8ff62]/55",
@@ -63,8 +67,8 @@ export function EntriesFilterDates({ from, to }: Props) {
   const [toValue, setToValue] = React.useState(to ?? "");
   return (
     <div className="flex min-w-0 gap-2">
-      <FilterDate label="From date" name="from" value={fromValue} onChange={setFromValue} />
-      <FilterDate label="To date" name="to" value={toValue} onChange={setToValue} />
+      <FilterDate label="From" name="from" value={fromValue} onChange={setFromValue} />
+      <FilterDate label="To" name="to" value={toValue} onChange={setToValue} />
     </div>
   );
 }
