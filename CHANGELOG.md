@@ -3,6 +3,13 @@
 All notable TimeTone releases are documented here. Versions follow
 [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## [0.3.3] - 2026-09-14
+
+- Point the installer, updater, and dashboard links at the canonical `PolderLabsVOF/TimeTone` repository instead of relying on GitHub's redirect from the old location.
+- Build and test the `dev` integration branch alongside `beta` and `main`.
+- Support pre-release tags in the release pipeline, so release candidates publish as GitHub pre-releases and stay out of the installer's stable version resolution.
+- Document the branch model, contribution guidelines, and versioning standards.
+
 ## [0.3.2] - 2026-09-14
 
 - Add a release preview before installation or update work begins, including the exact stable version selected from GitHub.
