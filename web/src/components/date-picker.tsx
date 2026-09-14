@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   addMonths,
   addDays,
+  endOfMonth,
   endOfWeek,
   format,
   isSameDay,
@@ -32,7 +33,11 @@ export type DatePickerProps = {
   name?: string;
   required?: boolean;
   placeholder?: string;
-  light?: boolean;
+  /**
+   * Surface the picker is placed on. Every dashboard surface is white, so "light"
+   * is the default; "dark" keeps the picker legible on a dark card.
+   */
+  surface?: "light" | "dark";
   disabled?: boolean;
   size?: "sm" | "md";
   className?: string;
@@ -51,6 +56,11 @@ function isoOf(d: Date): string {
   return format(d, "yyyy-MM-dd");
 }
 
+/** Moves `day` into the month of `month`, keeping the day of month where it exists. */
+function dayInMonth(day: Date, month: Date): Date {
+  return new Date(month.getFullYear(), month.getMonth(), Math.min(day.getDate(), endOfMonth(month).getDate()));
+}
+
 export function DatePicker({
   value,
   onChange,
@@ -58,12 +68,13 @@ export function DatePicker({
   name,
   required,
   placeholder = "Select date",
-  light,
+  surface = "light",
   disabled,
   size = "md",
   className,
   "aria-label": ariaLabel,
 }: DatePickerProps): React.ReactNode {
+  const isLight = surface === "light";
   const normalized = parseIsoDate(value);
   const initialCursor = normalized ?? new Date();
   const [cursor, setCursor] = React.useState(initialCursor);
@@ -72,7 +83,11 @@ export function DatePicker({
   const [rawText, setRawText] = React.useState(value);
   const dayBtnByIso = React.useRef<Map<string, HTMLButtonElement>>(new Map());
 
-  const labelText = normalized ? format(normalized, "d MMM yyyy") : placeholder;
+  const formattedValue = normalized ? format(normalized, "d MMM yyyy") : null;
+  const labelText = formattedValue ?? placeholder;
+  // The caller's aria-label names the field. Appending the value keeps the chosen
+  // date in the trigger's accessible name instead of hiding it behind aria-label.
+  const triggerLabel = ariaLabel ? `${ariaLabel}, ${formattedValue ?? "no date selected"}` : undefined;
 
   const prevOpenRef = React.useRef(open);
   React.useEffect(() => {
@@ -98,7 +113,12 @@ export function DatePicker({
   const today = new Date();
 
   const focusedDate = focused ?? normalized ?? monthStart;
-  const focusedIso = isoOf(focusedDate);
+  // The focused day can sit outside the visible month (month buttons, PageUp/PageDown,
+  // or an external value change). Carrying it into the visible month keeps exactly one
+  // rendered day on the roving tabindex, so focus and the arrow keys cannot fall back
+  // to the month that is no longer on screen.
+  const activeDate = isSameMonth(focusedDate, cursor) ? focusedDate : dayInMonth(focusedDate, cursor);
+  const focusedIso = isoOf(activeDate);
 
   const selectDay = React.useCallback((d: Date) => {
     const iso = isoOf(d);
@@ -120,19 +140,18 @@ export function DatePicker({
   }, [onChange, rawText]);
 
   const onGridKeyDown = (event: React.KeyboardEvent) => {
-    const cur = focused ?? normalized ?? monthStart;
     let next: Date | null = null;
     switch (event.key) {
-      case "ArrowLeft": next = addDays(cur, -1); break;
-      case "ArrowRight": next = addDays(cur, 1); break;
-      case "ArrowUp": next = addDays(cur, -7); break;
-      case "ArrowDown": next = addDays(cur, 7); break;
-      case "Home": next = startOfWeek(cur, { weekStartsOn: 1 }); break;
-      case "End": next = endOfWeek(cur, { weekStartsOn: 1 }); break;
-      case "PageUp": { event.preventDefault(); setCursor((c) => subMonths(c, 1)); return; }
-      case "PageDown": { event.preventDefault(); setCursor((c) => addMonths(c, 1)); return; }
+      case "ArrowLeft": next = addDays(activeDate, -1); break;
+      case "ArrowRight": next = addDays(activeDate, 1); break;
+      case "ArrowUp": next = addDays(activeDate, -7); break;
+      case "ArrowDown": next = addDays(activeDate, 7); break;
+      case "Home": next = startOfWeek(activeDate, { weekStartsOn: 1 }); break;
+      case "End": next = endOfWeek(activeDate, { weekStartsOn: 1 }); break;
+      case "PageUp": next = subMonths(activeDate, 1); break;
+      case "PageDown": next = addMonths(activeDate, 1); break;
       case "Enter":
-      case " ": { event.preventDefault(); if (focused) selectDay(focused); else if (cur) selectDay(cur); return; }
+      case " ": { event.preventDefault(); selectDay(activeDate); return; }
       case "Escape": { event.preventDefault(); setOpen(false); return; }
       default: return;
     }
@@ -153,7 +172,7 @@ export function DatePicker({
   const triggerBase =
     `inline-flex w-full items-center justify-between rounded-lg border px-2.5 text-sm ` +
     `outline-none transition focus:ring-2 focus:ring-[#d8ff62]/55 ` +
-    (light
+    (isLight
       ? "border-black/10 bg-white text-black hover:bg-black/[.02]"
       : "border-white/15 bg-white/8 text-white hover:bg-white/10");
 
@@ -165,13 +184,13 @@ export function DatePicker({
           id={id}
           type="button"
           disabled={disabled}
-          aria-label={ariaLabel}
+          aria-label={triggerLabel}
           aria-haspopup="dialog"
           aria-expanded={open}
-          className={cn(triggerHeight, triggerBase, !value && (light ? "text-black/35" : "text-white/35"), className)}
+          className={cn(triggerHeight, triggerBase, !value && (isLight ? "text-black/35" : "text-white/35"), className)}
         >
-          <span className={cn("truncate", !value && (light ? "text-black/35" : "text-white/35"))}>{labelText}</span>
-          <Calendar className={cn("ml-2 size-4 shrink-0", light ? "text-black/35" : "text-white/35")} aria-hidden="true" />
+          <span className={cn("truncate", !value && (isLight ? "text-black/35" : "text-white/35"))}>{labelText}</span>
+          <Calendar className={cn("ml-2 size-4 shrink-0", isLight ? "text-black/35" : "text-white/35")} aria-hidden="true" />
         </PopoverTrigger>
         <PopoverPortal>
           <PopoverPositioner
@@ -183,11 +202,12 @@ export function DatePicker({
             <PopoverPopup
               className={cn(
                 `w-[19rem] rounded-xl border p-3 shadow-xl ` +
-                  (light
+                  (isLight
                     ? "border-black/10 bg-white text-black shadow-black/10"
                     : "border-white/15 bg-[#1d2a22] text-white shadow-black/25"),
               )}
-              role="group"
+              role="dialog"
+              aria-label={ariaLabel ? `${ariaLabel} calendar` : "Calendar"}
             >
               <div className="flex items-center justify-between gap-2">
                 <button
@@ -196,19 +216,19 @@ export function DatePicker({
                   onClick={() => setCursor((c) => subMonths(c, 1))}
                   className={cn(
                     "grid size-7 place-items-center rounded-md transition focus:ring-2 focus:ring-[#d8ff62]/55",
-                    light ? "hover:bg-black/[.06]" : "hover:bg-white/10",
+                    isLight ? "hover:bg-black/[.06]" : "hover:bg-white/10",
                   )}
                 >
                   <ChevronLeft className="size-4" />
                 </button>
-                <span className="text-sm font-medium tabular-nums">{format(cursor, "MMMM yyyy")}</span>
+                <span aria-live="polite" aria-atomic="true" className="text-sm font-medium tabular-nums">{format(cursor, "MMMM yyyy")}</span>
                 <button
                   type="button"
                   aria-label="Next month"
                   onClick={() => setCursor((c) => addMonths(c, 1))}
                   className={cn(
                     "grid size-7 place-items-center rounded-md transition focus:ring-2 focus:ring-[#d8ff62]/55",
-                    light ? "hover:bg-black/[.06]" : "hover:bg-white/10",
+                    isLight ? "hover:bg-black/[.06]" : "hover:bg-white/10",
                   )}
                 >
                   <ChevronRight className="size-4" />
@@ -231,7 +251,7 @@ export function DatePicker({
                 <thead>
                   <tr>
                     {WEEKDAYS.map((d) => (
-                      <th key={d} scope="col" className={cn("py-1 text-center text-[11px] font-medium", light ? "text-black/45" : "text-white/45")}>{d}</th>
+                      <th key={d} scope="col" className={cn("py-1 text-center text-[11px] font-medium", isLight ? "text-black/45" : "text-white/45")}>{d}</th>
                     ))}
                   </tr>
                 </thead>
@@ -245,27 +265,30 @@ export function DatePicker({
                         const outside = !isSameMonth(d, cursor);
                         const isFocused = iso === focusedIso;
                         return (
-                          <td key={iso} role="gridcell" className="p-0.5 text-center">
+                          <td
+                            key={iso}
+                            role="gridcell"
+                            aria-selected={isSelected}
+                            className="p-0.5 text-center"
+                          >
                             <button
                               ref={(el) => {
                                 if (el) dayBtnByIso.current.set(iso, el);
                                 else dayBtnByIso.current.delete(iso);
                               }}
                               type="button"
-                              role="gridcell"
                               tabIndex={isFocused ? 0 : -1}
                               aria-label={format(d, "EEEE, d MMMM yyyy")}
-                              aria-selected={isSelected}
                               aria-current={isToday ? "date" : undefined}
                               onClick={() => selectDay(d)}
                               onFocus={() => setFocused(d)}
                               className={cn(
                                 "grid size-8 place-items-center rounded-md text-sm tabular-nums transition focus:ring-2 focus:ring-[#d8ff62]/55",
-                                outside && (light ? "text-black/35" : "text-white/35"),
+                                outside && (isLight ? "text-black/35" : "text-white/35"),
                                 isToday && !isSelected && "ring-1 ring-[#d8ff62]",
                                 isSelected
                                   ? "bg-[#d8ff62] font-semibold text-[#17211b]"
-                                  : light
+                                  : isLight
                                     ? "hover:bg-black/[.06]"
                                     : "hover:bg-white/10",
                               )}
@@ -280,8 +303,8 @@ export function DatePicker({
                 </tbody>
               </table>
 
-              <div className={cn("mt-3 border-t pt-3", light ? "border-black/10" : "border-white/10")}>
-                <label className={cn("text-xs", light ? "text-black/45" : "text-white/45")} htmlFor={id ? `${id}-fallback` : undefined}>
+              <div className={cn("mt-3 border-t pt-3", isLight ? "border-black/10" : "border-white/10")}>
+                <label className={cn("text-xs", isLight ? "text-black/45" : "text-white/45")} htmlFor={id ? `${id}-fallback` : undefined}>
                   Or type yyyy-MM-dd
                 </label>
                 <input
@@ -295,7 +318,7 @@ export function DatePicker({
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitText(); } }}
                   className={cn(
                     `mt-1 h-9 w-full rounded-lg border px-2.5 text-sm outline-none transition focus:ring-2 focus:ring-[#d8ff62]/55`,
-                    light ? "border-black/10 bg-white text-black placeholder:text-black/35" : "border-white/15 bg-white/8 text-white placeholder:text-white/35",
+                    isLight ? "border-black/10 bg-white text-black placeholder:text-black/35" : "border-white/15 bg-white/8 text-white placeholder:text-white/35",
                   )}
                 />
                 {required && value === "" ? (

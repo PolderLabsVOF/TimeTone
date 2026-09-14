@@ -88,6 +88,8 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, li
     setOpen(false);
   };
   const hour = time ? time.slice(0, 2) : "09";
+  // The same field renders as "Clock in" or "Clock out", so the error must follow the label.
+  const missingTimeMessage = `Choose a ${label.toLowerCase().replaceAll(" ", "-")} time.`;
   const controlHeight = size === "sm" ? "h-9" : "h-10";
   const inputClass = light
     ? "border-black/10 bg-white text-black"
@@ -112,7 +114,7 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, li
             value={date}
             onChange={(v) => { setDate(v); if (v) setMissingDate(false); }}
             placeholder="Select date"
-            light={light}
+            surface={light ? "light" : "dark"}
             size={size}
             aria-label={label}
           />
@@ -124,6 +126,7 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, li
             aria-expanded={open}
             aria-controls={panelId}
             aria-haspopup="dialog"
+            aria-label={`${label}, ${time || "no time set"}`}
             className={`${controlHeight} w-full ${triggerTimeClass}`}
           >
             <span className={time ? "tabular-nums" : mutedClass}>{time || "Set time"}</span>
@@ -168,7 +171,7 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, li
         </Popover>
       </div>
       {required && missingDate && <p className="text-xs text-red-600">Choose a date.</p>}
-      {missingTime && <p className="text-xs text-red-600">Choose a clock-in time.</p>}
+      {missingTime && <p className="text-xs text-red-600">{missingTimeMessage}</p>}
     </div>
   );
 }
