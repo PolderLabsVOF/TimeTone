@@ -6,6 +6,79 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 # Private forks may explicitly override the source reference.
 SOURCE_REF=${TIMETONE_SOURCE_REF:-}
 RELEASE_TAG=${TIMETONE_RELEASE_TAG:-}
+NATIVE_SERVICE_NAME=timetone.service
+
+run_root() {
+  if [ "$(id -u)" -eq 0 ]; then "$@"; elif command -v sudo >/dev/null 2>&1; then sudo "$@"; else printf '%s\n' "This step needs root privileges. Install sudo or rerun as root: $*" >&2; exit 1; fi
+}
+
+native_service_file() {
+  printf '%s/.config/systemd/user/%s' "${HOME:-$(getent passwd "$(id -un)" | cut -d: -f6)}" "$NATIVE_SERVICE_NAME"
+}
+
+native_service_available() {
+  command -v systemctl >/dev/null 2>&1 || return 1
+  [ -f "$(native_service_file)" ] || return 1
+  systemctl --user cat "$NATIVE_SERVICE_NAME" >/dev/null 2>&1
+}
+
+install_native_service() {
+  NODE_BIN=$(command -v node)
+  SERVICE_FILE=$(native_service_file)
+  SERVICE_DIR=$(dirname "$SERVICE_FILE")
+  mkdir -p "$SERVICE_DIR"
+  cat > "$SERVICE_FILE" <<EOF
+[Unit]
+Description=TimeTone dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$ROOT_DIR/web/.next/standalone
+EnvironmentFile=$ROOT_DIR/web/.env
+Environment=DATABASE_PATH=$ROOT_DIR/web/data/timekeep.db
+Environment=PORT=$PORT
+Environment=HOSTNAME=0.0.0.0
+Environment=NODE_ENV=production
+StandardOutput=append:$ROOT_DIR/web/timetone.log
+StandardError=append:$ROOT_DIR/web/timetone.log
+ExecStart=$NODE_BIN server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+EOF
+  if ! command -v systemctl >/dev/null 2>&1; then
+    printf '%s\n' "Warning: systemd is unavailable; native TimeTone cannot be started automatically after reboot." >&2
+    return 0
+  fi
+  if command -v loginctl >/dev/null 2>&1; then run_root loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || true; fi
+  if ! systemctl --user daemon-reload || ! systemctl --user enable "$NATIVE_SERVICE_NAME"; then
+    printf '%s\n' "Warning: could not enable the native TimeTone systemd service; automatic startup is not configured." >&2
+    return 0
+  fi
+}
+
+start_native_server() {
+  if native_service_available; then
+    systemctl --user enable --now "$NATIVE_SERVICE_NAME"
+    SERVICE_PID=$(systemctl --user show "$NATIVE_SERVICE_NAME" --property=MainPID --value 2>/dev/null || true)
+    case "$SERVICE_PID" in ''|0|*[!0-9]*) ;; *) printf '%s\n' "$SERVICE_PID" > "$WEB_DIR/timetone.pid" ;; esac
+    return
+  fi
+  if [ -f "$WEB_DIR/.next/standalone/server.js" ]; then
+    (cd "$WEB_DIR/.next/standalone" && set -a && . "$WEB_DIR/.env" && set +a && DATABASE_PATH="$WEB_DIR/data/timekeep.db" PORT="$PORT" HOSTNAME=0.0.0.0 nohup node server.js > "$WEB_DIR/timetone.log" 2>&1 & echo $! > "$WEB_DIR/timetone.pid")
+  else
+    (cd "$WEB_DIR" && set -a && . .env && set +a && DATABASE_PATH="$WEB_DIR/data/timekeep.db" PORT="$PORT" HOSTNAME=0.0.0.0 nohup npm run start -- --hostname 0.0.0.0 > timetone.log 2>&1 & echo $! > "$WEB_DIR/timetone.pid")
+  fi
+}
+
+stop_native_service() {
+  if native_service_available; then systemctl --user stop "$NATIVE_SERVICE_NAME" || true; fi
+}
 
 resolve_release() {
   if [ -z "$RELEASE_TAG" ]; then
@@ -65,6 +138,7 @@ stop_before_update() {
     printf '%s\n' "Keeping Docker running until the replacement image is ready…" >&2
     return
   fi
+  stop_native_service
   UPDATE_PID=$(sed -n '1p' "$SCRIPT_DIR/web/timetone.pid" 2>/dev/null || true)
   case "$UPDATE_PID" in *[!0-9]*|'') UPDATE_PID="" ;; esac
   if [ -n "$UPDATE_PID" ] && kill -0 "$UPDATE_PID" 2>/dev/null; then
@@ -315,9 +389,6 @@ if [ -z "$MODE" ]; then
 fi
 case "$MODE" in docker|native) ;; *) printf '%s\n' "Unrecognized install mode; using $DEFAULT_MODE." >&2; MODE=$DEFAULT_MODE ;; esac
 
-run_root() {
-  if [ "$(id -u)" -eq 0 ]; then "$@"; elif command -v sudo >/dev/null 2>&1; then sudo "$@"; else printf '%s\n' "This step needs root privileges. Install sudo or rerun as root: $*" >&2; exit 1; fi
-}
 ensure_base_dependencies() {
   command -v tar >/dev/null 2>&1 && command -v sed >/dev/null 2>&1 && command -v find >/dev/null 2>&1 && command -v curl >/dev/null 2>&1 && return
   if command -v apt-get >/dev/null 2>&1; then
@@ -352,6 +423,7 @@ if [ "$MODE" = docker ]; then
   fi
   command -v docker >/dev/null 2>&1 || { printf '%s\n' "Docker installation did not provide the docker command." >&2; exit 1; }
   docker compose version >/dev/null 2>&1 || { printf '%s\n' "Docker Compose v2 is required (docker compose)." >&2; exit 1; }
+  if command -v systemctl >/dev/null 2>&1; then run_root systemctl enable docker >/dev/null 2>&1 || true; fi
 else
   NODE_OK=false
   if command -v node >/dev/null 2>&1; then node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)' >/dev/null 2>&1 && NODE_OK=true; fi
@@ -424,7 +496,13 @@ show_status() {
     printf '  Health response: %s\n' "${HEALTH_BODY:-<no response>}"
     [ -n "$HEALTH_CURL_ERROR" ] && printf '  Health error: %s\n' "$HEALTH_CURL_ERROR"
     if [ "$MODE" = native ]; then
-      if [ -f "$WEB_DIR/timetone.pid" ]; then printf '  PID file: %s (state: %s)\n' "$(sed -n '1p' "$WEB_DIR/timetone.pid")" "$(ps -p "$(sed -n '1p' "$WEB_DIR/timetone.pid")" -o stat= 2>/dev/null || printf 'not running')"; else printf '  PID file: missing\n'; fi
+      if native_service_available; then
+        printf '  systemd service: %s (PID %s)\n' "$(systemctl --user is-active "$NATIVE_SERVICE_NAME" 2>/dev/null || printf 'not running')" "$(systemctl --user show "$NATIVE_SERVICE_NAME" --property=MainPID --value 2>/dev/null || printf 'unknown')"
+      elif [ -f "$WEB_DIR/timetone.pid" ]; then
+        printf '  PID file: %s (state: %s)\n' "$(sed -n '1p' "$WEB_DIR/timetone.pid")" "$(ps -p "$(sed -n '1p' "$WEB_DIR/timetone.pid")" -o stat= 2>/dev/null || printf 'not running')"
+      else
+        printf '  PID file: missing\n'
+      fi
       if command -v ss >/dev/null 2>&1; then printf '  Port check: %s\n' "$(ss -ltnp 2>/dev/null | awk -v p=":$PORT" '$4 ~ p {print; found=1} END {if (!found) print "not listening"}')"; fi
       printf '  Recent log output:\n'; tail -n 30 "$WEB_DIR/timetone.log" 2>/dev/null || printf '    <log unavailable>\n'
     else
@@ -436,6 +514,7 @@ show_status() {
 }
 
 stop_native_server() {
+  stop_native_service
   if [ -f "$WEB_DIR/timetone.pid" ]; then
     OLD_PID=$(sed -n '1p' "$WEB_DIR/timetone.pid")
     case "$OLD_PID" in *[!0-9]*|'') OLD_PID="" ;; esac
@@ -499,8 +578,9 @@ NODE
   if [ "$MODE" = docker ]; then
     (cd "$WEB_DIR" && docker compose up -d)
   else
+    install_native_service
     stop_native_server
-    if [ -f "$WEB_DIR/.next/standalone/server.js" ]; then (cd "$WEB_DIR/.next/standalone" && set -a && . "$WEB_DIR/.env" && set +a && PORT="$PORT" nohup node server.js > "$WEB_DIR/timetone.log" 2>&1 & echo $! > "$WEB_DIR/timetone.pid"); else (cd "$WEB_DIR" && set -a && . .env && set +a && PORT="$PORT" nohup npm run start -- --hostname 0.0.0.0 > timetone.log 2>&1 & echo $! > timetone.pid); fi
+    start_native_server
   fi
   show_status || true
   printf '%s\n' "Password reset complete. Configuration and database preserved." >&2
@@ -542,8 +622,9 @@ if [ "$UPDATE" = true ]; then
     else
       install_prebuilt_native
     fi
+    install_native_service
     stop_native_server
-    if [ -f "$WEB_DIR/.next/standalone/server.js" ]; then (cd "$WEB_DIR/.next/standalone" && set -a && . "$WEB_DIR/.env" && set +a && PORT="$PORT" nohup node server.js > "$WEB_DIR/timetone.log" 2>&1 & echo $! > "$WEB_DIR/timetone.pid"); else (cd "$WEB_DIR" && set -a && . .env && set +a && PORT="$PORT" nohup npm run start -- --hostname 0.0.0.0 > timetone.log 2>&1 & echo $! > timetone.pid); fi
+    start_native_server
   fi
   show_status || true
   printf '%s\n' "Configuration and database preserved." >&2
@@ -557,8 +638,10 @@ if [ -f "$WEB_DIR/.env" ] && [ "$FORCE" = false ] && [ "$NON_INTERACTIVE" = fals
     printf '%s\n' "Kept existing configuration. Starting TimeTone…"
     if [ "$MODE" = docker ]; then (cd "$WEB_DIR" && docker compose up -d --build)
     else
+      install_native_service
       stop_native_server
-      if [ -f "$WEB_DIR/.next/standalone/server.js" ]; then (cd "$WEB_DIR/.next/standalone" && set -a && . "$WEB_DIR/.env" && set +a && PORT="$PORT" nohup node server.js > "$WEB_DIR/timetone.log" 2>&1 & echo $! > "$WEB_DIR/timetone.pid"); else (cd "$WEB_DIR" && npm run build >/dev/null && set -a && . .env && set +a && PORT="$PORT" nohup npm run start -- --hostname 0.0.0.0 > timetone.log 2>&1 & echo $! > "$WEB_DIR/timetone.pid"); fi
+      if [ ! -f "$WEB_DIR/.next/standalone/server.js" ]; then (cd "$WEB_DIR" && npm run build >/dev/null); fi
+      start_native_server
     fi
     show_status || true
     exit 0 ;;
@@ -601,8 +684,9 @@ else
   else
     install_prebuilt_native
   fi
+  install_native_service
   stop_native_server
-  if [ -f "$WEB_DIR/.next/standalone/server.js" ]; then (cd "$WEB_DIR/.next/standalone" && set -a && . "$WEB_DIR/.env" && set +a && PORT="$PORT" nohup node server.js > "$WEB_DIR/timetone.log" 2>&1 & echo $! > "$WEB_DIR/timetone.pid"); else (cd "$WEB_DIR" && set -a && . .env && set +a && PORT="$PORT" nohup npm run start -- --hostname 0.0.0.0 > timetone.log 2>&1 & echo $! > timetone.pid); fi
+  start_native_server
 fi
 show_status || true
 [ "$MODE" = native ] && printf '%s\n' "Native logs: $WEB_DIR/timetone.log  |  PID file: $WEB_DIR/timetone.pid"

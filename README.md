@@ -102,7 +102,8 @@ curl -fsSL https://raw.githubusercontent.com/PolderLabsVOF/TimeTone/main/install
 
 Set `TIMETONE_INSTALL_DIR` to choose another installation directory. Native
 installs require Node.js 20.9+ and npm; Debian/Ubuntu installs bootstrap
-Node.js 24 automatically. See [deployment and operations](docs/DEPLOYMENT.md)
+Node.js 24 automatically. Native installs use a systemd user service to start
+the dashboard after reboot. See [deployment and operations](docs/DEPLOYMENT.md)
 for non-Debian systems, HTTPS, services, backups, and security.
 
 ## First setup
