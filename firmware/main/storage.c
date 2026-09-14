@@ -158,6 +158,32 @@ bool tk_time_is_valid(void)
     return now > 1704067200; // 2024-01-01
 }
 
+bool tk_time_apply_timezone(const char *timezone)
+{
+    const char *posix_timezone = NULL;
+    if (!timezone || !timezone[0]) return false;
+    if (strcmp(timezone, "Europe/Amsterdam") == 0 ||
+        strcmp(timezone, "Europe/Brussels") == 0 ||
+        strcmp(timezone, "Europe/Berlin") == 0) {
+        posix_timezone = "CET-1CEST,M3.5.0,M10.5.0/3";
+    } else if (strcmp(timezone, "UTC") == 0 ||
+               strcmp(timezone, "Etc/UTC") == 0 ||
+               strcmp(timezone, "Etc/GMT") == 0) {
+        posix_timezone = "UTC0";
+    }
+    if (!posix_timezone) {
+        ESP_LOGW(TAG, "unsupported IANA timezone %s; keeping current timezone", timezone);
+        return false;
+    }
+    if (setenv("TZ", posix_timezone, 1) != 0) {
+        ESP_LOGE(TAG, "could not apply timezone %s", timezone);
+        return false;
+    }
+    tzset();
+    ESP_LOGI(TAG, "applied timezone %s", timezone);
+    return true;
+}
+
 void tk_format_utc(char output[25])
 {
     time_t now;

@@ -15,3 +15,6 @@ bool tk_peek_code_request(tk_code_request_t *request);
 esp_err_t tk_pop_code_request(const char *id);
 void tk_format_utc(char output[25]);
 bool tk_time_is_valid(void);
+// The terminal includes the POSIX rules needed for its supported IANA zones.
+// Unsupported values leave the currently active, known-safe timezone in place.
+bool tk_time_apply_timezone(const char *timezone);

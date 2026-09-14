@@ -25,6 +25,7 @@ static volatile bool s_code_requested;
 static volatile bool s_warm_requested;
 static TickType_t s_next_pair_attempt;
 static volatile bool s_clock_request_in_flight;
+static uint8_t s_sync_failures;
 // A colour code is the terminal's interactive path. Retain its HTTP client so
 // TLS is negotiated once rather than again for every employee. Background
 // calls stay one-shot: some reverse proxies close their idle HTTP/1.1 sockets,
@@ -35,6 +36,25 @@ static bool s_clock_connection_warmed;
 
 typedef struct { char *data; size_t length; size_t capacity; } response_buffer_t;
 static void ota_task(void *argument);
+
+static bool tick_due(TickType_t now, TickType_t deadline)
+{
+    return (int32_t)(now - deadline) >= 0;
+}
+
+static TickType_t seconds_to_ticks(uint16_t seconds, uint16_t fallback)
+{
+    uint32_t effective_seconds = seconds ? seconds : fallback;
+    return pdMS_TO_TICKS(effective_seconds * 1000U);
+}
+
+static TickType_t retry_ticks(uint16_t base_seconds)
+{
+    const uint8_t exponent = s_sync_failures > 4 ? 4 : s_sync_failures;
+    uint32_t seconds = (uint32_t)(base_seconds ? base_seconds : 5) << exponent;
+    if (seconds > 60) seconds = 60;
+    return pdMS_TO_TICKS(seconds * 1000U);
+}
 
 static void discard_clock_client(void)
 {
@@ -159,6 +179,7 @@ static esp_err_t fetch_config(void)
         cJSON *screen_off_timeout = cJSON_GetObjectItem(settings, "screenOffTimeoutSeconds");
         cJSON *low_power_timeout = cJSON_GetObjectItem(settings, "lowPowerTimeoutSeconds");
         cJSON *theme = cJSON_GetObjectItem(settings, "terminalTheme");
+        cJSON *timezone = cJSON_GetObjectItem(settings, "timezone");
         cJSON *company_name = cJSON_GetObjectItem(settings, "companyName");
         tk_config_t updated = *tk_config_get();
         bool changed = false;
@@ -185,19 +206,32 @@ static esp_err_t fetch_config(void)
             strlcpy(updated.terminal_theme, theme->valuestring, sizeof(updated.terminal_theme));
             changed = true;
         }
-        if (changed) { tk_config_save(&updated); tk_display_apply_settings(); }
+        if (cJSON_IsString(timezone) && strcmp(updated.timezone, timezone->valuestring) != 0 && tk_time_apply_timezone(timezone->valuestring)) {
+            strlcpy(updated.timezone, timezone->valuestring, sizeof(updated.timezone));
+            changed = true;
+        }
+        if (changed) {
+            esp_err_t save_err = tk_config_save(&updated);
+            if (save_err == ESP_OK) tk_display_apply_settings();
+            else ESP_LOGW(TAG, "could not persist device settings: %s", esp_err_to_name(save_err));
+        }
         if (cJSON_IsString(company_name)) tk_display_set_company_name(company_name->valuestring);
     }
     cJSON *firmware_update = cJSON_GetObjectItem(root, "firmwareUpdate");
     if (!s_ota_in_progress && cJSON_IsObject(firmware_update)) {
         cJSON *version = cJSON_GetObjectItem(firmware_update, "version");
         cJSON *url = cJSON_GetObjectItem(firmware_update, "url");
-        if (cJSON_IsString(version) && cJSON_IsString(url) && strcmp(version->valuestring, TK_FIRMWARE_VERSION) != 0 && strlen(url->valuestring) < 512) {
+        if (cJSON_IsString(version) && cJSON_IsString(url) && strcmp(version->valuestring, TK_FIRMWARE_VERSION) != 0 && strncmp(url->valuestring, "https://", 8) == 0 && strlen(url->valuestring) < 512) {
             char *ota_url = strdup(url->valuestring);
             if (ota_url) {
                 s_ota_in_progress = true;
                 tk_display_show_ota(version->valuestring);
-                xTaskCreate(ota_task, "timekeep_ota", 8192, ota_url, 5, NULL);
+                if (xTaskCreate(ota_task, "timekeep_ota", 8192, ota_url, 5, NULL) != pdPASS) {
+                    ESP_LOGE(TAG, "could not start OTA task");
+                    free(ota_url);
+                    s_ota_in_progress = false;
+                    tk_display_finish_ota(false);
+                }
             }
         }
     }
@@ -313,11 +347,70 @@ static esp_err_t push_events(void)
     int status = request("/api/device/v1/events", HTTP_METHOD_POST, body, response, sizeof(response));
     free(body);
     if (status != 200) return ESP_FAIL;
+
+    // The server acknowledges every uploaded event separately. A transport
+    // success does not mean every item was accepted (for example, an employee
+    // can have been deactivated while this terminal was offline), so never
+    // discard unacknowledged or rejected events from the local durable queue.
+    cJSON *root_response = cJSON_Parse(response);
+    cJSON *results = root_response ? cJSON_GetObjectItem(root_response, "results") : NULL;
+    if (!cJSON_IsArray(results)) {
+        if (root_response) cJSON_Delete(root_response);
+        ESP_LOGW(TAG, "event upload response had no acknowledgements; retaining queue");
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    bool acknowledged[TK_MAX_EVENTS] = { false };
+    cJSON *result;
+    cJSON_ArrayForEach(result, results) {
+        cJSON *id = cJSON_GetObjectItem(result, "id");
+        cJSON *result_status = cJSON_GetObjectItem(result, "status");
+        if (!cJSON_IsString(id) || !cJSON_IsString(result_status)) continue;
+        for (int i = 0; i < count; ++i) {
+            if (strcmp(events[i].id, id->valuestring) != 0) continue;
+            if (strcmp(result_status->valuestring, "accepted") == 0 ||
+                strcmp(result_status->valuestring, "duplicate") == 0 ||
+                strcmp(result_status->valuestring, "ignored") == 0) {
+                acknowledged[i] = true;
+            } else {
+                ESP_LOGW(TAG, "server rejected queued event %s; retaining it for review", events[i].id);
+            }
+            break;
+        }
+    }
+    cJSON_Delete(root_response);
+
     state = tk_state_lock();
-    if (state->event_count >= count) {
-        memmove(state->events, state->events + count, (state->event_count - count) * sizeof(tk_event_t));
-        state->event_count -= count;
-        tk_state_save();
+    uint16_t original_count = state->event_count;
+    tk_event_t original_events[TK_MAX_EVENTS];
+    memcpy(original_events, state->events, original_count * sizeof(tk_event_t));
+    int removed = 0;
+    int retained = 0;
+    for (int i = 0; i < state->event_count; ++i) {
+        bool sent_event = false;
+        bool accepted = false;
+        for (int j = 0; j < count; ++j) {
+            if (strcmp(state->events[i].id, events[j].id) == 0) {
+                sent_event = true;
+                accepted = acknowledged[j];
+                break;
+            }
+        }
+        if (sent_event && accepted) {
+            removed++;
+            continue;
+        }
+        if (retained != i) state->events[retained] = state->events[i];
+        retained++;
+    }
+    if (removed) {
+        state->event_count = retained;
+        esp_err_t save_err = tk_state_save();
+        if (save_err != ESP_OK) {
+            memcpy(state->events, original_events, original_count * sizeof(tk_event_t));
+            state->event_count = original_count;
+            tk_state_unlock();
+            return save_err;
+        }
     }
     tk_state_unlock();
     return ESP_OK;
@@ -385,29 +478,63 @@ static int heartbeat(void)
 
 static void api_task(void *argument)
 {
+    bool first_sync = true;
+    TickType_t next_health = 0;
+    TickType_t next_config = 0;
     while (true) {
-        xSemaphoreTake(s_wake, portMAX_DELAY);
+        const tk_config_t *config = tk_config_get();
+        TickType_t now = xTaskGetTickCount();
+        if (!next_health) next_health = now;
+        if (!next_config) next_config = now;
+        TickType_t deadline = tick_due(next_health, next_config) ? next_config : next_health;
+        TickType_t wait = tick_due(now, deadline) ? 0 : deadline - now;
+        xSemaphoreTake(s_wake, wait);
+
+        now = xTaskGetTickCount();
         bool refresh_requested = s_force_config;
         bool code_requested = s_code_requested;
         bool warm_requested = s_warm_requested;
         s_force_config = false;
         s_code_requested = false;
         s_warm_requested = false;
+        bool health_due = tick_due(now, next_health);
+        bool config_due = tick_due(now, next_config);
         if (!tk_network_connected() || !tk_config_get()->configured || tk_display_is_sleeping() || s_clock_request_in_flight) {
             if (refresh_requested) tk_display_set_network_state(TK_DISPLAY_CONNECTING);
             if (code_requested) tk_display_submission_status("Saved - retry when online", 0xC47B24);
+            if (health_due) next_health = now + retry_ticks(config->sync_interval_seconds);
+            if (config_due) next_config = now + pdMS_TO_TICKS(30000);
             continue;
         }
-        // Configuration is intentionally event-driven: once at boot and when
-        // the user explicitly taps Sync Now. There is no timed polling.
-        if (refresh_requested) {
+
+        if (refresh_requested || health_due || config_due) {
             int health_status = heartbeat();
             if (health_status == 200) {
-                tk_display_set_network_state(TK_DISPLAY_SYNCING);
-                if (fetch_config() != ESP_OK) ESP_LOGW(TAG, "manual configuration sync failed; retaining local cache");
-                if (push_events() != ESP_OK) ESP_LOGW(TAG, "queued event upload failed; retry on the next action");
+                s_sync_failures = 0;
+                next_health = now + seconds_to_ticks(config->sync_interval_seconds, 5);
+                // heartbeat() sets this when the dashboard explicitly requests
+                // a sync. Consume it in this pass so a stable connection picks
+                // up remote changes without waiting for a disconnect or wake.
+                bool server_requested_config = s_force_config;
+                s_force_config = false;
+                if (first_sync || refresh_requested || config_due || server_requested_config) {
+                    tk_display_set_network_state(TK_DISPLAY_SYNCING);
+                    if (fetch_config() == ESP_OK) {
+                        first_sync = false;
+                        next_config = now + seconds_to_ticks(tk_config_get()->full_sync_interval_seconds, 300);
+                    } else {
+                        // Keep the cached terminal state and retry a broken
+                        // config route calmly; health checks continue normally.
+                        next_config = now + pdMS_TO_TICKS(30000);
+                        ESP_LOGW(TAG, "configuration sync failed; retaining local cache and retrying in 30s");
+                    }
+                }
+                if (push_events() != ESP_OK) ESP_LOGW(TAG, "queued event upload failed; will retry");
                 tk_display_set_network_state(TK_DISPLAY_ONLINE);
             } else {
+                if (s_sync_failures < 5) s_sync_failures++;
+                next_health = now + retry_ticks(config->sync_interval_seconds);
+                if (config_due) next_config = now + pdMS_TO_TICKS(30000);
                 tk_display_set_network_state(health_status == 401 ? TK_DISPLAY_CONNECTING : TK_DISPLAY_SYNC_RETRYING);
             }
         }
@@ -415,7 +542,10 @@ static void api_task(void *argument)
         // It does not fetch settings or perform the removed periodic sync.
         if (warm_requested) warm_clock_connection();
         // A colour-code entry is the only routine server request after setup.
-        if (code_requested) {
+        // A persisted code is retried after every healthy heartbeat, which
+        // recovers submissions made during an outage even when nobody taps
+        // the terminal again. Request IDs make these retries idempotent.
+        if (code_requested || (health_due && !s_sync_failures)) {
             esp_err_t code_result = push_code_requests();
             if (code_result == ESP_OK) tk_display_set_network_state(TK_DISPLAY_ONLINE);
             else if (code_result != ESP_ERR_NOT_FOUND) tk_display_set_network_state(TK_DISPLAY_SYNC_RETRYING);

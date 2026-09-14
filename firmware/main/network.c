@@ -165,6 +165,7 @@ static esp_err_t save_handler(httpd_req_t *request)
     if (save_err != ESP_OK) {
         return httpd_resp_send_err(request, HTTPD_500_INTERNAL_SERVER_ERROR, "Could not save settings to flash");
     }
+    if (strcmp(previous.timezone, config.timezone) != 0) tk_time_apply_timezone(config.timezone);
     bool restart_required = strcmp(previous.ssid, config.ssid) != 0 || strcmp(previous.wifi_password, config.wifi_password) != 0;
     httpd_resp_set_type(request, "text/html");
     if (restart_required) {

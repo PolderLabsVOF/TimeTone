@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { authenticateDevice, unauthorized } from "@/lib/device-api";
 import { db } from "@/lib/db";
+import { publishLiveUpdate } from "@/lib/live-updates";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
   }
   const syncRequested = !!device.sync_requested_at;
   db.prepare(
-    "UPDATE devices SET last_seen_at = ?, firmware_version = ?, ip_address = ?, pending_events = ?, sync_requested_at = NULL, ota_version = CASE WHEN ota_version = ? THEN NULL ELSE ota_version END, ota_url = CASE WHEN ota_version = ? THEN NULL ELSE ota_url END, ota_requested_at = CASE WHEN ota_version = ? THEN NULL ELSE ota_requested_at END WHERE id = ?",
+    "UPDATE devices SET last_seen_at = ?, firmware_version = ?, ip_address = ?, pending_events = ?, ota_version = CASE WHEN ota_version = ? THEN NULL ELSE ota_version END, ota_url = CASE WHEN ota_version = ? THEN NULL ELSE ota_url END, ota_requested_at = CASE WHEN ota_version = ? THEN NULL ELSE ota_requested_at END WHERE id = ?",
   ).run(
     new Date().toISOString(),
     parsed.data.firmwareVersion,
@@ -30,6 +31,7 @@ export async function POST(request: Request) {
     parsed.data.firmwareVersion,
     device.id,
   );
+  publishLiveUpdate("device");
   return Response.json(
     { ok: true, serverTime: new Date().toISOString(), configRefresh: syncRequested },
     { headers: { "Cache-Control": "no-store, no-cache, must-revalidate" } },

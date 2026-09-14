@@ -120,6 +120,11 @@ export default async function DevicesPage() {
                           <option value="30">30 seconds</option><option value="60">1 minute</option><option value="300">5 minutes</option><option value="600">10 minutes</option><option value="1800">30 minutes</option><option value="3600">1 hour</option>
                         </select>
                       </label>
+                      <label className="space-y-1.5 text-xs font-medium text-black/60">Terminal theme
+                        <select name="terminal_theme" defaultValue={device.terminal_theme} className="block h-9 w-full rounded-lg border border-black/10 bg-white px-2 text-sm font-normal">
+                          <option value="light">Light</option><option value="dark">Dark</option>
+                        </select>
+                      </label>
                       <Button type="submit" size="sm" className="sm:col-span-2 bg-[#17211b] text-white hover:bg-[#26352c]">Save device settings</Button>
                     </form>
                     <form action={requestDeviceSync} className="mt-3">

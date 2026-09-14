@@ -6,12 +6,13 @@ export const dynamic = "force-dynamic";
 export function GET(request: Request) {
   const device = authenticateDevice(request);
   if (!device) return unauthorized();
+  const syncRequestedAt = device.sync_requested_at;
   const settings = getSettings();
   const open = new Set(
     (db.prepare("SELECT employee_id FROM time_entries WHERE clock_out IS NULL")
       .all() as { employee_id: string }[]).map((row) => row.employee_id),
   );
-  return Response.json({
+  const response = Response.json({
     protocolVersion: 1,
     serverTime: new Date().toISOString(),
     device: { id: device.id, name: device.name },
@@ -37,4 +38,12 @@ export function GET(request: Request) {
       clockedIn: open.has(employee.id),
     })),
   }, { headers: { "Cache-Control": "no-store" } });
+  // A heartbeat only advertises a pending refresh. Clear the request when
+  // this authenticated terminal has actually read its configuration, and
+  // retain a newer request that arrived while this response was assembled.
+  if (syncRequestedAt) {
+    db.prepare("UPDATE devices SET sync_requested_at = NULL WHERE id = ? AND sync_requested_at = ?")
+      .run(device.id, syncRequestedAt);
+  }
+  return response;
 }

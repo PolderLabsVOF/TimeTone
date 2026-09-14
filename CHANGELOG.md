@@ -3,6 +3,15 @@
 All notable TimeTone releases are documented here. Versions follow
 [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## [0.3.1] - 2026-09-14
+
+- Restore scheduled terminal heartbeats and configuration refreshes so a stable terminal receives device settings, sync requests, OTA availability, and queued-event retries without needing a reconnect or wake.
+- Keep dashboard sync requests pending until the authenticated terminal has successfully fetched configuration.
+- Preserve locally queued events unless the server individually acknowledges them, and make OTA startup failures retryable.
+- Synchronize supported terminal timezones and device theme settings, including a dashboard theme selector.
+- Add batch manual entries, quarter-hour time selection, and a rounded Now action.
+- Add confirmed device removal while retaining recorded time entries.
+
 ## [0.3.0] - 2026-09-14
 
 - Port the approved portrait terminal design with touch-sized controls, custom settings pickers, connection-state indicators, light/dark themes and reduced motion.

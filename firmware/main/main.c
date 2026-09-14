@@ -16,6 +16,9 @@ void app_main(void)
     setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);
     tzset();
     ESP_ERROR_CHECK(tk_storage_init());
+    // Preserve the CET default if an old installation has no timezone or a
+    // configured IANA zone is outside the terminal's embedded rule set.
+    tk_time_apply_timezone(tk_config_get()->timezone);
     ESP_ERROR_CHECK(tk_network_init());
     ESP_ERROR_CHECK(tk_display_init());
     ESP_ERROR_CHECK(tk_api_start());
