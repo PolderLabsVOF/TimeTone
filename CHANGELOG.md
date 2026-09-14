@@ -3,7 +3,7 @@
 All notable TimeTone releases are documented here. Versions follow
 [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
-## [0.3.4-dev] - 2026-09-14
+## [0.3.4-rc.1] - 2026-09-14
 
 - Add a custom accessible date picker for manual time entries and dashboard filters.
 - Add a full 24-hour quarter-hour time picker for manual time entries.
