@@ -260,6 +260,10 @@ static size_t s_all_screen_count;
 // Do not place this on the LVGL task stack.  A complete employee cache is
 // nearly 6 KiB, while the UI task must also have room for LVGL itself.
 static tk_employee_t s_employee_status_cache[TK_MAX_EMPLOYEES];
+// What the team-status rows were last built from, so an unchanged roster does
+// not rebuild them (see refresh_employee_status_list).
+static uint16_t s_employee_status_cache_count;
+static bool s_employee_status_cache_valid;
 static char s_pin[9];
 static bool s_online;
 static tk_display_network_state_t s_network_state = TK_DISPLAY_OFFLINE;
@@ -614,12 +618,21 @@ static void clear_keypad_event(lv_event_t *event)
 
 static void clock_timer(lv_timer_t *timer)
 {
+    // lv_label_set_text() frees and reallocates the label's text on every call
+    // (lv_label.c, lv_label_set_text: no content comparison) out of the fixed
+    // 64 KiB LVGL pool (CONFIG_LV_MEM_SIZE_KILOBYTES), which cannot grow
+    // (CONFIG_LV_MEM_POOL_EXPAND_SIZE_KILOBYTES=0), and it invalidates the
+    // label. At 1 Hz that is permanent churn on a text that changes once a
+    // minute, so skip the write when the text is unchanged.
+    static char s_clock_text[8];
     time_t now; struct tm local;
     time(&now); localtime_r(&now, &local);
     char text[24];
     if (tk_time_is_valid()) strftime(text, sizeof(text), "%H:%M", &local);
     else strlcpy(text, "--:--", sizeof(text));
-    if (s_clock_label) lv_label_set_text(s_clock_label, text);
+    if (!s_clock_label || strcmp(text, s_clock_text) == 0) return;
+    strlcpy(s_clock_text, text, sizeof(s_clock_text));
+    lv_label_set_text(s_clock_label, text);
 }
 
 // ============================================================================
@@ -974,6 +987,17 @@ static void show_status_screen(void)
 }
 
 static void settings_back_event(lv_event_t *event) { show_main_screen(); }
+// The Sync-now value label is written by every network-state push, which the
+// api task emits on each health pass, so a redundant write is steady churn in
+// the fixed LVGL pool (see clock_timer). Funnel every write through here so the
+// "same text" comparison always sees the last text actually shown.
+static void sync_value_set_text(const char *text)
+{
+    static char s_last_text[16];
+    if (!s_sync_value_label || !text || strcmp(text, s_last_text) == 0) return;
+    strlcpy(s_last_text, text, sizeof(s_last_text));
+    lv_label_set_text(s_sync_value_label, text);
+}
 // Sync-now value-area feedback (spec §4): idle ">", busy "Syncing...", then
 // "Done" or "Retry". Purely display-driven — network state changes push the
 // text; there is NO polling timer. Repeated taps do not stack anything:
@@ -984,30 +1008,30 @@ static void settings_sync_value_refresh(tk_display_network_state_t state)
     bool busy = state == TK_DISPLAY_SYNCING || (s_sync_requested && state == TK_DISPLAY_CONNECTING);
     if (busy) lv_obj_add_state(s_sync_row, LV_STATE_DISABLED);
     else lv_obj_remove_state(s_sync_row, LV_STATE_DISABLED);
-    if (state == TK_DISPLAY_SYNCING) lv_label_set_text(s_sync_value_label, "Syncing...");
+    if (state == TK_DISPLAY_SYNCING) sync_value_set_text("Syncing...");
     else if (state == TK_DISPLAY_SYNC_RETRYING || state == TK_DISPLAY_OFFLINE) {
-        lv_label_set_text(s_sync_value_label, state == TK_DISPLAY_OFFLINE ? "Offline" : "Retry");
+        sync_value_set_text(state == TK_DISPLAY_OFFLINE ? "Offline" : "Retry");
         s_sync_requested = false;
     }
     else if (state == TK_DISPLAY_ONLINE && s_sync_requested) {
-        lv_label_set_text(s_sync_value_label, "Done");
+        sync_value_set_text("Done");
         s_sync_requested = false; // arm one-shot; next idle shows ">"
     }
-    else lv_label_set_text(s_sync_value_label, ">");
+    else sync_value_set_text(">");
 }
 static void settings_sync_event(lv_event_t *event)
 {
     (void)event;
     if (s_sync_requested) return;
     if (s_network_state == TK_DISPLAY_OFFLINE) {
-        lv_label_set_text(s_sync_value_label, "Offline");
+        sync_value_set_text("Offline");
         tk_api_wake();
         return;
     }
     tk_api_wake();
     s_sync_requested = true;
     lv_obj_add_state(s_sync_row, LV_STATE_DISABLED);
-    if (s_sync_value_label) lv_label_set_text(s_sync_value_label, "Syncing...");
+    sync_value_set_text("Syncing...");
     status_set_token("Sync requested", TK_TOKEN_SYNC);
 }
 
@@ -1145,14 +1169,40 @@ static lv_obj_t *ui_text_default(lv_obj_t *parent, const char *text, tk_color_to
     return ui_text(parent, text, color, x, y, TK_FONT_SMALL);
 }
 
+// Field-wise, and only over the entries that are rendered: the bytes outside a
+// string inside the struct are not guaranteed to match between a cached copy
+// and a freshly parsed one, so compare the fields instead of the memory.
+static bool employee_status_cache_matches(const tk_state_t *state, uint16_t count)
+{
+    if (!s_employee_status_cache_valid || count != s_employee_status_cache_count) return false;
+    for (uint16_t i = 0; i < count; ++i) {
+        const tk_employee_t *cached = &s_employee_status_cache[i];
+        const tk_employee_t *current = &state->employees[i];
+        if (cached->clocked_in != current->clocked_in ||
+            strcmp(cached->id, current->id) != 0 ||
+            strcmp(cached->name, current->name) != 0 ||
+            strcmp(cached->code_digest, current->code_digest) != 0) return false;
+    }
+    return true;
+}
+
 static void refresh_employee_status_list(void)
 {
     if (!s_employee_status_list) return;
     uint16_t count;
     tk_state_t *state = tk_state_lock();
     count = state->employee_count > TK_MAX_EMPLOYEES ? TK_MAX_EMPLOYEES : state->employee_count;
-    memcpy(s_employee_status_cache, state->employees, count * sizeof(tk_employee_t));
+    // This runs on the api task after every successful config fetch. Rebuilding
+    // allocates and frees a few hundred LVGL objects in the fixed 64 KiB pool,
+    // so only do it when the roster the rows are derived from actually changed.
+    bool changed = !employee_status_cache_matches(state, count);
+    if (changed) {
+        memcpy(s_employee_status_cache, state->employees, count * sizeof(tk_employee_t));
+        s_employee_status_cache_count = count;
+        s_employee_status_cache_valid = true;
+    }
     tk_state_unlock();
+    if (!changed) return;
     lv_obj_clean(s_employee_status_list);
     if (!count) {
         ui_text_default(s_employee_status_list, "No employee data yet.\nSync the terminal, then try again.", TK_TOKEN_MUTED, 12, 16);
@@ -1709,9 +1759,9 @@ static void settings_follow_server(lv_event_t *event)
     updated.local_power_override = false;
     updated.terminal_theme_override = false;
     if (tk_config_save(&updated) == ESP_OK) {
-        lv_label_set_text(s_sync_value_label, "Requested");
+        sync_value_set_text("Requested");
         tk_api_wake();
-    } else lv_label_set_text(s_sync_value_label, "Save failed");
+    } else sync_value_set_text("Save failed");
 }
 
 static void build_settings_ui(void)
@@ -2346,6 +2396,12 @@ esp_err_t tk_display_init(void)
     const esp_timer_create_args_t tick_args = { .callback = tick_cb, .name = "lvgl_tick" };
     esp_timer_handle_t timer; ESP_ERROR_CHECK(esp_timer_create(&tick_args, &timer)); ESP_ERROR_CHECK(esp_timer_start_periodic(timer, 2000));
     build_clock_ui(); build_status_ui(); build_setup_ui(); build_settings_ui(); build_calibration_ui(); build_picker_ui(); build_boot_ui(); build_ota_ui(); tk_display_refresh();
+    // Navigation translates whole page containers (screen_slide_in), which
+    // exposes the active screen behind them for the length of the animation.
+    // Left alone that strip is the default theme's own background — a light
+    // grey behind a dark terminal — so paint the root with the app background.
+    // apply_theme_styles() remaps it when the theme changes.
+    lv_obj_set_style_bg_color(lv_screen_active(), tk_lv_color(TK_TOKEN_BG), 0);
     finalize_touch_layout(lv_screen_active());
     press_feedback_set_all(!s_reduce_motion);
     char current_ip[16]; tk_network_ip(current_ip, sizeof(current_ip)); tk_display_set_ip(current_ip);
@@ -2404,7 +2460,13 @@ void tk_display_refresh(void)
     if (!s_count_label) return;
     int employees, pending; tk_state_t *state = tk_state_lock(); employees = state->employee_count; pending = state->event_count; tk_state_unlock();
     char text[64]; snprintf(text, sizeof(text), "%d people - %d pending", employees, pending);
-    _lock_acquire(&s_lvgl_lock); lv_label_set_text(s_count_label, text); refresh_employee_status_list(); _lock_release(&s_lvgl_lock);
+    _lock_acquire(&s_lvgl_lock); lv_label_set_text(s_count_label, text);
+    // The list is off-screen most of the time, and show_status_screen()
+    // refreshes it before it is ever shown, so there is nothing to rebuild
+    // while it is hidden.
+    if (s_status_screen && !lv_obj_has_flag(s_status_screen, LV_OBJ_FLAG_HIDDEN))
+        refresh_employee_status_list();
+    _lock_release(&s_lvgl_lock);
 }
 
 void tk_display_show_setup(void)
@@ -2481,10 +2543,15 @@ static void remap_local_theme_color(lv_obj_t *obj, lv_style_prop_t prop,
         return;
 
     lv_color_t replacement;
-    if (theme_remap_color(value.color, &replacement)) {
-        value.color = replacement;
-        lv_obj_set_local_style_prop(obj, prop, value, selector);
-    }
+    if (!theme_remap_color(value.color, &replacement)) return;
+    /* lv_obj_set_local_style_prop() invalidates the object on every write
+     * (lv_obj_set_local_style_prop -> lv_obj_refresh_style ->
+     * lv_obj_invalidate, with no value comparison), and this walks the whole
+     * tree. Rewriting a colour that is already correct is a free repaint of the
+     * visible screen, so only write a real change. */
+    if (lv_color_eq(replacement, value.color)) return;
+    value.color = replacement;
+    lv_obj_set_local_style_prop(obj, prop, value, selector);
 }
 
 static void apply_theme_to_tree(lv_obj_t *obj)
@@ -2519,25 +2586,32 @@ static void apply_theme_to_tree(lv_obj_t *obj)
 static void apply_theme_styles(void)
 {
     bool dark = dark_theme();
-    lv_color_t bg = tk_lv_color(TK_TOKEN_BG);
-    lv_color_t line = tk_lv_color(TK_TOKEN_LINE);
     lv_color_t ink = tk_lv_color(TK_TOKEN_INK);
     for (size_t i = 0; i < s_all_screen_count; ++i) {
         lv_obj_t *screen = s_all_screens[i];
         if (!screen) continue;
         apply_theme_to_tree(screen);
-        lv_obj_set_style_bg_color(screen, bg, 0);
+        // The walk above already remapped each screen's own background. Routing
+        // this through the same helper keeps the screens on the shared "only
+        // rewrite a palette colour that actually changed" path, instead of
+        // forcing a background write (and a full-screen invalidate) per screen.
+        remap_local_theme_color(screen, LV_STYLE_BG_COLOR, 0);
     }
+    // The active screen shows through wherever a page container is translated
+    // during navigation; it is painted with the app background in
+    // tk_display_init() and remapped here so a theme flip keeps it in step.
+    lv_obj_t *active = lv_screen_active();
+    if (active) remap_local_theme_color(active, LV_STYLE_BG_COLOR, 0);
     // Header chrome (every screen that ships with one).
-    if (s_header) lv_obj_set_style_bg_color(s_header, bg, 0);
-    if (s_settings_header) lv_obj_set_style_bg_color(s_settings_header, bg, 0);
-    if (s_calibration_header) lv_obj_set_style_bg_color(s_calibration_header, bg, 0);
-    if (s_picker_header) lv_obj_set_style_bg_color(s_picker_header, bg, 0);
-    if (s_status_dot_halo_bg) lv_obj_set_style_bg_color(s_status_dot_halo_bg, bg, 0);
-    if (s_status_dot_halo_line) lv_obj_set_style_bg_color(s_status_dot_halo_line, line, 0);
-    if (s_brand_label) lv_obj_set_style_text_color(s_brand_label, ink, 0);
-    if (s_pin_label) lv_obj_set_style_text_color(s_pin_label, ink, 0);
-    if (s_count_label) lv_obj_set_style_text_color(s_count_label, tk_lv_color(TK_TOKEN_MUTED), 0);
+    if (s_header) remap_local_theme_color(s_header, LV_STYLE_BG_COLOR, 0);
+    if (s_settings_header) remap_local_theme_color(s_settings_header, LV_STYLE_BG_COLOR, 0);
+    if (s_calibration_header) remap_local_theme_color(s_calibration_header, LV_STYLE_BG_COLOR, 0);
+    if (s_picker_header) remap_local_theme_color(s_picker_header, LV_STYLE_BG_COLOR, 0);
+    if (s_status_dot_halo_bg) remap_local_theme_color(s_status_dot_halo_bg, LV_STYLE_BG_COLOR, 0);
+    if (s_status_dot_halo_line) remap_local_theme_color(s_status_dot_halo_line, LV_STYLE_BG_COLOR, 0);
+    if (s_brand_label) remap_local_theme_color(s_brand_label, LV_STYLE_TEXT_COLOR, 0);
+    if (s_pin_label) remap_local_theme_color(s_pin_label, LV_STYLE_TEXT_COLOR, 0);
+    if (s_count_label) remap_local_theme_color(s_count_label, LV_STYLE_TEXT_COLOR, 0);
     // Sequence dots — border takes line colour in both themes.
     for (int i = 0; i < 4; ++i) {
         if (s_sequence_dots[i]) {
