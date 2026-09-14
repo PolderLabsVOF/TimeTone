@@ -6,26 +6,47 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 # Private forks may explicitly override the source reference.
 SOURCE_REF=${TIMETONE_SOURCE_REF:-}
 RELEASE_TAG=${TIMETONE_RELEASE_TAG:-}
+DEV_MODE=${TIMETONE_DEV_MODE:-false}
 NATIVE_SERVICE_NAME=timetone.service
+
+# Parse this one bootstrap option before the existing-install handoff below.
+# The handoff downloads the selected source and re-executes this script, so
+# --dev must be known before it tries to resolve a stable release asset.
+for arg in "$@"; do
+  [ "$arg" = "--dev" ] && DEV_MODE=true
+done
+if [ "$DEV_MODE" = true ]; then
+  SOURCE_REF=${SOURCE_REF:-dev}
+  export TIMETONE_DEV_MODE=true
+fi
 
 run_root() {
   if [ "$(id -u)" -eq 0 ]; then "$@"; elif command -v sudo >/dev/null 2>&1; then sudo "$@"; else printf '%s\n' "This step needs root privileges. Install sudo or rerun as root: $*" >&2; exit 1; fi
 }
 
 native_service_file() {
-  printf '%s/.config/systemd/user/%s' "${HOME:-$(getent passwd "$(id -un)" | cut -d: -f6)}" "$NATIVE_SERVICE_NAME"
+  if [ "$(id -u)" -eq 0 ]; then
+    printf '/etc/systemd/system/%s' "$NATIVE_SERVICE_NAME"
+  else
+    printf '%s/.config/systemd/user/%s' "${HOME:-$(getent passwd "$(id -un)" | cut -d: -f6)}" "$NATIVE_SERVICE_NAME"
+  fi
+}
+
+native_service_ctl() {
+  if [ "$(id -u)" -eq 0 ]; then systemctl "$@"; else systemctl --user "$@"; fi
 }
 
 native_service_available() {
   command -v systemctl >/dev/null 2>&1 || return 1
   [ -f "$(native_service_file)" ] || return 1
-  systemctl --user cat "$NATIVE_SERVICE_NAME" >/dev/null 2>&1
+  native_service_ctl cat "$NATIVE_SERVICE_NAME" >/dev/null 2>&1
 }
 
 install_native_service() {
   NODE_BIN=$(command -v node)
   SERVICE_FILE=$(native_service_file)
   SERVICE_DIR=$(dirname "$SERVICE_FILE")
+  if [ "$(id -u)" -eq 0 ]; then SERVICE_TARGET=multi-user.target; else SERVICE_TARGET=default.target; fi
   mkdir -p "$SERVICE_DIR"
   cat > "$SERVICE_FILE" <<EOF
 [Unit]
@@ -43,16 +64,24 @@ Environment=HOSTNAME=0.0.0.0
 Environment=NODE_ENV=production
 StandardOutput=append:$ROOT_DIR/web/timetone.log
 StandardError=append:$ROOT_DIR/web/timetone.log
+$(if [ "$(id -u)" -eq 0 ]; then printf '%s\n' 'User=root'; fi)
 ExecStart=$NODE_BIN server.js
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30
 
 [Install]
-WantedBy=default.target
+WantedBy=$SERVICE_TARGET
 EOF
   if ! command -v systemctl >/dev/null 2>&1; then
     printf '%s\n' "Warning: systemd is unavailable; native TimeTone cannot be started automatically after reboot." >&2
+    return 0
+  fi
+  if [ "$(id -u)" -eq 0 ]; then
+    if ! systemctl daemon-reload || ! systemctl enable "$NATIVE_SERVICE_NAME"; then
+      printf '%s\n' "Warning: could not enable the native TimeTone systemd service; automatic startup is not configured." >&2
+      return 0
+    fi
     return 0
   fi
   if command -v loginctl >/dev/null 2>&1; then run_root loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || true; fi
@@ -64,8 +93,8 @@ EOF
 
 start_native_server() {
   if native_service_available; then
-    systemctl --user enable --now "$NATIVE_SERVICE_NAME"
-    SERVICE_PID=$(systemctl --user show "$NATIVE_SERVICE_NAME" --property=MainPID --value 2>/dev/null || true)
+    native_service_ctl enable --now "$NATIVE_SERVICE_NAME"
+    SERVICE_PID=$(native_service_ctl show "$NATIVE_SERVICE_NAME" --property=MainPID --value 2>/dev/null || true)
     case "$SERVICE_PID" in ''|0|*[!0-9]*) ;; *) printf '%s\n' "$SERVICE_PID" > "$WEB_DIR/timetone.pid" ;; esac
     return
   fi
@@ -77,24 +106,34 @@ start_native_server() {
 }
 
 stop_native_service() {
-  if native_service_available; then systemctl --user stop "$NATIVE_SERVICE_NAME" || true; fi
+  if native_service_available; then native_service_ctl stop "$NATIVE_SERVICE_NAME" || true; fi
 }
 
 resolve_release() {
+  if [ "$DEV_MODE" = true ]; then
+    SOURCE_REF=${SOURCE_REF:-dev}
+    RELEASE_TAG=dev
+    export TIMETONE_SOURCE_REF="$SOURCE_REF" TIMETONE_RELEASE_TAG="$RELEASE_TAG"
+    return
+  fi
   if [ -z "$RELEASE_TAG" ]; then
     RELEASE_TAG=$(curl -fsSL https://api.github.com/repos/PolderLabsVOF/TimeTone/releases/latest |
       sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)
   fi
   case "$RELEASE_TAG" in v[0-9]*.[0-9]*.[0-9]*) ;; *) printf '%s\n' "Could not resolve a stable release." >&2; exit 1 ;; esac
   [ -n "$SOURCE_REF" ] || SOURCE_REF=$RELEASE_TAG
-  export TIMETONE_RELEASE_TAG="$RELEASE_TAG"
+  export TIMETONE_SOURCE_REF="$SOURCE_REF" TIMETONE_RELEASE_TAG="$RELEASE_TAG"
 }
 
 show_release_preview() {
   PREVIEW_ACTION=$1
   printf '\nTimeTone %s\n' "$PREVIEW_ACTION" >&2
   printf '  Target version: %s\n' "$RELEASE_TAG" >&2
-  printf '  Release source: GitHub stable release\n\n' >&2
+  if [ "$DEV_MODE" = true ]; then
+    printf '  Release source: GitHub %s branch (local build)\n\n' "$SOURCE_REF" >&2
+  else
+    printf '  Release source: GitHub stable release\n\n' >&2
+  fi
 }
 
 require_release_platform() {
@@ -203,8 +242,8 @@ if [ -f "$SCRIPT_DIR/web/.env" ] && [ "${TIMETONE_UPDATE_IN_PROGRESS:-}" != 1 ];
       [ -n "$NEW_SOURCE" ] || { printf '%s\n' "The update archive was empty." >&2; exit 1; }
       cp "$SCRIPT_DIR/web/.env" "$TMP_UPDATE/.env"
       INSTALLED_MODE=$(sed -n 's/^TIMETONE_INSTALL_MODE=//p' "$TMP_UPDATE/.env" | head -n 1)
-      require_release_platform
-      if [ "$INSTALLED_MODE" = native ]; then
+      [ "$DEV_MODE" = true ] || require_release_platform
+      if [ "$INSTALLED_MODE" = native ] && [ "$DEV_MODE" = false ]; then
         printf '%s\n' "  [3/4] Downloading the native web runtime..." >&2
         curl -fsSL "https://github.com/PolderLabsVOF/TimeTone/releases/download/$RELEASE_TAG/timetone-web.tar.gz" -o "$TMP_UPDATE/timetone-web.tar.gz"
         tar -tzf "$TMP_UPDATE/timetone-web.tar.gz" | grep -q 'web/.next/standalone/server.js' || {
@@ -222,7 +261,7 @@ if [ -f "$SCRIPT_DIR/web/.env" ] && [ "${TIMETONE_UPDATE_IN_PROGRESS:-}" != 1 ];
       # Replace it from the release asset during updates; copying source alone
       # would otherwise leave the previous UI bundle serving stale pages.
       INSTALLED_MODE=$(sed -n 's/^TIMETONE_INSTALL_MODE=//p' "$TMP_UPDATE/.env" | head -n 1)
-      if [ "$INSTALLED_MODE" = native ]; then
+      if [ "$INSTALLED_MODE" = native ] && [ "$DEV_MODE" = false ]; then
         if [ -f "$TMP_UPDATE/timetone-web.tar.gz" ]; then
           if [ -d "$SCRIPT_DIR/web/.next/standalone" ]; then mv "$SCRIPT_DIR/web/.next/standalone" "$TMP_UPDATE/old-standalone"; fi
           tar -xzf "$TMP_UPDATE/timetone-web.tar.gz" -C "$SCRIPT_DIR"
@@ -249,7 +288,7 @@ if [ ! -f "$SCRIPT_DIR/web/package.json" ]; then
     mkdir -p "$INSTALL_DIR"
     REQUEST_NATIVE=false
     for arg in "$@"; do [ "$arg" = "--native" ] && REQUEST_NATIVE=true; done
-    if [ "$REQUEST_NATIVE" = true ]; then
+    if [ "$REQUEST_NATIVE" = true ] && [ "$DEV_MODE" = false ]; then
       printf '%s\n' "  [1/2] Downloading the prebuilt native web runtime..."
       if curl -fsSL "https://github.com/PolderLabsVOF/TimeTone/releases/download/$RELEASE_TAG/timetone-web.tar.gz" -o "$TMP_DIR/timetone-web.tar.gz"; then
         tar -xzf "$TMP_DIR/timetone-web.tar.gz" -C "$INSTALL_DIR"
@@ -269,7 +308,7 @@ if [ ! -f "$SCRIPT_DIR/web/package.json" ]; then
   # Always refresh the entrypoint, including when a previous failed install
   # already created INSTALL_DIR. This avoids rerunning a stale cached script.
   printf '%s\n' "  [2/2] Starting the TimeTone installer..."
-  curl -fsSL "https://raw.githubusercontent.com/PolderLabsVOF/TimeTone/main/install.sh?cachebust=$(date +%s%N)" -o "$INSTALL_DIR/install.sh"
+  curl -fsSL "https://raw.githubusercontent.com/PolderLabsVOF/TimeTone/$SOURCE_REF/install.sh?cachebust=$(date +%s%N)" -o "$INSTALL_DIR/install.sh"
   exec sh "$INSTALL_DIR/install.sh" "$@"
 fi
 ROOT_DIR=$SCRIPT_DIR
@@ -344,7 +383,8 @@ for arg in "$@"; do
     --native) MODE=native ;;
     --docker) MODE=docker ;;
     --force) FORCE=true ;;
-    -h|--help) printf '%s\n' "Usage: ./install.sh [--docker|--native] [--update] [--reset-password] [--non-interactive] [--force]"; exit 0 ;;
+    --dev) DEV_MODE=true; SOURCE_REF=${SOURCE_REF:-dev}; export TIMETONE_DEV_MODE=true TIMETONE_SOURCE_REF="$SOURCE_REF" ;;
+    -h|--help) printf '%s\n' "Usage: ./install.sh [--dev] [--docker|--native] [--update] [--reset-password] [--non-interactive] [--force]"; exit 0 ;;
     *) printf '%s\n' "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
@@ -497,7 +537,7 @@ show_status() {
     [ -n "$HEALTH_CURL_ERROR" ] && printf '  Health error: %s\n' "$HEALTH_CURL_ERROR"
     if [ "$MODE" = native ]; then
       if native_service_available; then
-        printf '  systemd service: %s (PID %s)\n' "$(systemctl --user is-active "$NATIVE_SERVICE_NAME" 2>/dev/null || printf 'not running')" "$(systemctl --user show "$NATIVE_SERVICE_NAME" --property=MainPID --value 2>/dev/null || printf 'unknown')"
+        printf '  systemd service: %s (PID %s)\n' "$(native_service_ctl is-active "$NATIVE_SERVICE_NAME" 2>/dev/null || printf 'not running')" "$(native_service_ctl show "$NATIVE_SERVICE_NAME" --property=MainPID --value 2>/dev/null || printf 'unknown')"
       elif [ -f "$WEB_DIR/timetone.pid" ]; then
         printf '  PID file: %s (state: %s)\n' "$(sed -n '1p' "$WEB_DIR/timetone.pid")" "$(ps -p "$(sed -n '1p' "$WEB_DIR/timetone.pid")" -o stat= 2>/dev/null || printf 'not running')"
       else
@@ -601,6 +641,28 @@ install_prebuilt_native() {
   }
 }
 
+build_dev_native_runtime() {
+  phase "3/4" "Installing dev dependencies and building the native web runtime..."
+  (cd "$WEB_DIR" && run_with_spinner "Installing dev dependencies" npm install --no-audit --no-fund && run_with_spinner "Building the dev web runtime" npm run build)
+  # Next's standalone output keeps static assets beside, not inside, the
+  # standalone directory. The native service starts from standalone/, so copy
+  # the assets into the layout expected by server.js before starting it.
+  mkdir -p "$WEB_DIR/.next/standalone/.next/static"
+  cp -a "$WEB_DIR/.next/static/." "$WEB_DIR/.next/standalone/.next/static/"
+  if [ -d "$WEB_DIR/public" ]; then
+    mkdir -p "$WEB_DIR/.next/standalone/public"
+    cp -a "$WEB_DIR/public/." "$WEB_DIR/.next/standalone/public/"
+  fi
+  [ -f "$WEB_DIR/.next/standalone/server.js" ] || {
+    printf '%s\n' "The dev build did not produce a standalone runtime." >&2; exit 1;
+  }
+}
+
+install_dev_docker() {
+  phase "3/4" "Building and starting the dev Docker image..."
+  (cd "$WEB_DIR" && docker compose config -q && docker compose up -d --build)
+}
+
 install_prebuilt_docker() {
   require_release_platform
   resolve_release
@@ -615,9 +677,11 @@ install_prebuilt_docker() {
 if [ "$UPDATE" = true ]; then
   phase "start" "Updating TimeTone $RELEASE_TAG in place."
   if [ "$MODE" = docker ]; then
-    install_prebuilt_docker
+    if [ "$DEV_MODE" = true ]; then install_dev_docker; else install_prebuilt_docker; fi
   else
-    if [ -f "$WEB_DIR/.next/standalone/server.js" ]; then
+    if [ "$DEV_MODE" = true ]; then
+      build_dev_native_runtime
+    elif [ -f "$WEB_DIR/.next/standalone/server.js" ]; then
       printf '%s\n' "Using the prebuilt web bundle (no local build required)."
     else
       install_prebuilt_native
@@ -677,9 +741,11 @@ EOF
 
 phase "start" "Installing TimeTone $RELEASE_TAG."
 if [ "$MODE" = docker ]; then
-  install_prebuilt_docker
+  if [ "$DEV_MODE" = true ]; then install_dev_docker; else install_prebuilt_docker; fi
 else
-  if [ -f "$WEB_DIR/.next/standalone/server.js" ]; then
+  if [ "$DEV_MODE" = true ]; then
+    build_dev_native_runtime
+  elif [ -f "$WEB_DIR/.next/standalone/server.js" ]; then
     printf '%s\n' "Using the prebuilt web bundle (no local build required)."
   else
     install_prebuilt_native

@@ -23,25 +23,97 @@ typedef struct {
 static tk_code_queue_t s_code_queue;
 static SemaphoreHandle_t s_mutex;
 
+#define TK_STATE_BLOB_MAGIC 0x32534B54u
+#define TK_STATE_BLOB_VERSION 1u
+
+typedef struct {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t employee_count;
+    uint16_t event_count;
+} tk_state_blob_header_t;
+
 static esp_err_t save_blob(const char *key, const void *data, size_t size)
 {
-    nvs_handle_t handle;
-    ESP_RETURN_ON_ERROR(nvs_open("timekeep", NVS_READWRITE, &handle), TAG, "open nvs");
-    esp_err_t err = nvs_set_blob(handle, key, data, size);
+    nvs_handle_t handle = 0;
+    esp_err_t err = nvs_open("timekeep", NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "could not open NVS for %s: %s", key, esp_err_to_name(err));
+        return err;
+    }
+
+    err = nvs_set_blob(handle, key, data, size);
     // NVS stores blobs across multiple entries. On long-lived terminals,
     // repeated updates can leave the namespace without a contiguous set of
-    // free entries even though the total partition still has room. Reclaim
-    // this key and retry once before reporting a real storage failure.
+    // free entries even though the total partition still has room. Close the
+    // handle before reclaiming so NVS can complete page garbage collection.
     if (err == ESP_ERR_NVS_NOT_ENOUGH_SPACE) {
         ESP_LOGW(TAG, "NVS space low while saving %s; reclaiming old value", key);
-        if (nvs_erase_key(handle, key) == ESP_OK) {
-            err = nvs_commit(handle);
-            if (err == ESP_OK) err = nvs_set_blob(handle, key, data, size);
+        nvs_close(handle);
+        handle = 0;
+        err = nvs_open("timekeep", NVS_READWRITE, &handle);
+        if (err == ESP_OK) {
+            err = nvs_erase_key(handle, key);
+            if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
+            if (err == ESP_OK) err = nvs_commit(handle);
+            nvs_close(handle);
+            handle = 0;
+        }
+        if (err == ESP_OK) {
+            err = nvs_open("timekeep", NVS_READWRITE, &handle);
+            if (err == ESP_OK) {
+                err = nvs_set_blob(handle, key, data, size);
+                if (err == ESP_OK) err = nvs_commit(handle);
+            }
+        }
+    } else if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    if (handle) nvs_close(handle);
+    if (err != ESP_OK) {
+        nvs_stats_t stats;
+        if (nvs_get_stats(NULL, &stats) == ESP_OK) {
+            ESP_LOGW(TAG, "NVS save %s (%u bytes) failed: %s; free=%u used=%u", key,
+                     (unsigned)size, esp_err_to_name(err), (unsigned)stats.free_entries,
+                     (unsigned)stats.used_entries);
+        } else {
+            ESP_LOGW(TAG, "NVS save %s (%u bytes) failed: %s", key, (unsigned)size,
+                     esp_err_to_name(err));
         }
     }
-    if (err == ESP_OK) err = nvs_commit(handle);
-    nvs_close(handle);
     return err;
+}
+
+static void load_state_blob(const void *saved, size_t size)
+{
+    if (size >= sizeof(tk_state_blob_header_t)) {
+        tk_state_blob_header_t header;
+        memcpy(&header, saved, sizeof(header));
+        size_t compact_size = sizeof(header) +
+                              (size_t)header.employee_count * sizeof(tk_employee_t) +
+                              (size_t)header.event_count * sizeof(tk_event_t);
+        if (header.magic == TK_STATE_BLOB_MAGIC &&
+            header.version == TK_STATE_BLOB_VERSION &&
+            header.employee_count <= TK_MAX_EMPLOYEES &&
+            header.event_count <= TK_MAX_EVENTS &&
+            size >= compact_size) {
+            const uint8_t *cursor = (const uint8_t *)saved + sizeof(header);
+            s_state.version = 1;
+            s_state.employee_count = header.employee_count;
+            s_state.event_count = header.event_count;
+            memcpy(s_state.employees, cursor,
+                   (size_t)header.employee_count * sizeof(tk_employee_t));
+            cursor += (size_t)header.employee_count * sizeof(tk_employee_t);
+            memcpy(s_state.events, cursor,
+                   (size_t)header.event_count * sizeof(tk_event_t));
+            return;
+        }
+    }
+
+    // Legacy releases stored the complete fixed-size tk_state_t. Keep the
+    // prefix migration so existing employees and events survive the first
+    // compact rewrite.
+    memcpy(&s_state, saved, size < sizeof(s_state) ? size : sizeof(s_state));
 }
 
 esp_err_t tk_storage_init(void)
@@ -73,7 +145,7 @@ esp_err_t tk_storage_init(void)
         if (nvs_get_blob(handle, "state", NULL, &size) == ESP_OK && size) {
             void *saved = calloc(1, size);
             if (saved && nvs_get_blob(handle, "state", saved, &size) == ESP_OK) {
-                memcpy(&s_state, saved, size < sizeof(s_state) ? size : sizeof(s_state));
+                load_state_blob(saved, size);
             }
             free(saved);
         }
@@ -130,7 +202,34 @@ tk_state_t *tk_state_lock(void)
 }
 
 void tk_state_unlock(void) { xSemaphoreGive(s_mutex); }
-esp_err_t tk_state_save(void) { return save_blob("state", &s_state, sizeof(s_state)); }
+esp_err_t tk_state_save(void)
+{
+    uint16_t employee_count = s_state.employee_count > TK_MAX_EMPLOYEES ?
+        TK_MAX_EMPLOYEES : s_state.employee_count;
+    uint16_t event_count = s_state.event_count > TK_MAX_EVENTS ?
+        TK_MAX_EVENTS : s_state.event_count;
+    size_t size = sizeof(tk_state_blob_header_t) +
+                  (size_t)employee_count * sizeof(tk_employee_t) +
+                  (size_t)event_count * sizeof(tk_event_t);
+    uint8_t *blob = malloc(size);
+    if (!blob) return ESP_ERR_NO_MEM;
+
+    tk_state_blob_header_t header = {
+        .magic = TK_STATE_BLOB_MAGIC,
+        .version = TK_STATE_BLOB_VERSION,
+        .employee_count = employee_count,
+        .event_count = event_count,
+    };
+    memcpy(blob, &header, sizeof(header));
+    uint8_t *cursor = blob + sizeof(header);
+    memcpy(cursor, s_state.employees, (size_t)employee_count * sizeof(tk_employee_t));
+    cursor += (size_t)employee_count * sizeof(tk_employee_t);
+    memcpy(cursor, s_state.events, (size_t)event_count * sizeof(tk_event_t));
+
+    esp_err_t err = save_blob("state", blob, size);
+    free(blob);
+    return err;
+}
 
 static void digest_code(const char *code, char output[65])
 {

@@ -18,6 +18,8 @@ type Props = {
   id?: string;
   defaultValue?: string;
   required?: boolean;
+  clearable?: boolean;
+  clearLabel?: string;
   /**
    * Tone of the surface this field is placed on. Required, and the same prop and values as
    * `DatePicker`, so both components read the same way and neither has to guess: `black` and
@@ -37,7 +39,17 @@ function splitDateTime(value?: string) {
   return { date, time: time.slice(0, 5) };
 }
 
-export function TimeEntryDateField({ label, name, id, defaultValue, required, surface, size = "md" }: Props) {
+export function TimeEntryDateField({
+  label,
+  name,
+  id,
+  defaultValue,
+  required,
+  clearable = false,
+  clearLabel = "Clear",
+  surface,
+  size = "md",
+}: Props) {
   const initial = splitDateTime(defaultValue);
   const generatedId = useId();
   const fieldId = id || `${name}-${generatedId}`;
@@ -85,6 +97,13 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, su
     setTime("");
     setOpen(false);
   };
+  const clearValue = () => {
+    setDate("");
+    setTime("");
+    setMissingDate(false);
+    setMissingTime(false);
+    setOpen(false);
+  };
   const setNow = () => {
     const rounded = new Date(Math.round(Date.now() / 900_000) * 900_000);
     setDate(`${rounded.getFullYear()}-${String(rounded.getMonth() + 1).padStart(2, "0")}-${String(rounded.getDate()).padStart(2, "0")}`);
@@ -104,6 +123,10 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, su
   // ("09:30" / "Set time") inside the accessible name, as WCAG 2.5.3 requires.
   const timeLabel = time || "Set time";
   const timeTriggerLabel = `${label} time, ${timeLabel}`;
+  const hasValue = Boolean(date || time);
+  const clearFocusClass = isLight
+    ? "focus-visible:ring-black/40"
+    : "focus-visible:ring-[#d8ff62]/70";
   const inputClass = isLight
     ? "border-black/10 bg-white text-black"
     : "border-white/15 bg-white/8 text-white [color-scheme:dark]";
@@ -118,7 +141,19 @@ export function TimeEntryDateField({ label, name, id, defaultValue, required, su
 
   return (
     <div className="space-y-2" ref={pickerRef}>
-      <Label htmlFor={fieldId}>{label}</Label>
+      <div className="flex items-center justify-between gap-2">
+        <Label htmlFor={fieldId}>{label}</Label>
+        {clearable && hasValue && (
+          <button
+            type="button"
+            onClick={clearValue}
+            className={`text-xs underline-offset-2 transition hover:underline focus-visible:outline-none focus-visible:ring-2 ${clearFocusClass} ${mutedClass}`}
+            aria-label={`${clearLabel} ${label.toLowerCase()}`}
+          >
+            {clearLabel}
+          </button>
+        )}
+      </div>
       <input type="hidden" name={name} value={date && time ? `${date}T${time}` : ""} />
       <div className="grid grid-cols-[minmax(0,1fr)_8.5rem] gap-2">
         <div className="min-w-0">

@@ -13,15 +13,21 @@ CONFIG_LV_USE_LABEL=y
 CONFIG_LV_USE_SPINNER=y
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 
-# LVGL failures are silent without these. lv_malloc() failure runs
-# LV_ASSERT_MALLOC -> LV_ASSERT_HANDLER, which is `while(1);` and is NOT
-# overridable from Kconfig, so a pool-exhaustion freeze produces no output at
-# all: the LV_LOG_ERROR that names the failing expression compiles away. The
-# print callback in display.c (lv_log_register_print_cb) routes these into
-# ESP_LOGE; without a callback or CONFIG_LV_LOG_PRINTF, lv_log_add() formats the
-# message and drops it.
+# HTTPS certificate verification can briefly monopolize the network task on
+# ESP32's software ECC path. The API task is pinned away from LVGL and all
+# requests have their own timeout; give the idle watchdog enough margin for a
+# first TLS handshake without allowing an unbounded stall.
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=15
+
+# LVGL failures are silent without the log callback. The malloc assert is
+# intentionally disabled: a transient draw-buffer allocation failure must
+# return to the render loop instead of entering LV_ASSERT_HANDLER's infinite
+# loop. The layer buffer is kept below the remaining pool's largest free block
+# so transformed controls (including tile press feedback) have headroom.
 CONFIG_LV_USE_LOG=y
 CONFIG_LV_LOG_LEVEL_ERROR=y
+CONFIG_LV_USE_ASSERT_MALLOC=n
+CONFIG_LV_DRAW_LAYER_SIMPLE_BUF_SIZE=16384
 
 # Crash forensics. The crash this firmware shipped with was heap corruption
 # from a task-stack overflow, and CONFIG_ESP_COREDUMP_ENABLE_TO_NONE left no

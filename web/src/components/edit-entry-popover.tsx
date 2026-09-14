@@ -68,8 +68,12 @@ export function EditEntryPopover(props: {
                 </select>
               </div>
               <TimeEntryDateField label="Clock in" name="clock_in" id={`clock-in-${id}`} defaultValue={clockIn} required surface="light" size="sm" />
-              <TimeEntryDateField label="Clock out" name="clock_out" id={`clock-out-${id}`} defaultValue={clockOut ?? ""} surface="light" size="sm" />
-              {!clockOut && <p className="-mt-1 text-xs leading-4 text-emerald-700">This entry is open. Leave Clock out empty to keep it open, or set a time to close it.</p>}
+              <TimeEntryDateField label="Clock out" name="clock_out" id={`clock-out-${id}`} defaultValue={clockOut ?? ""} clearable clearLabel="Clear end time" surface="light" size="sm" />
+              <p className="-mt-1 text-xs leading-4 text-emerald-700">
+                {clockOut
+                  ? "Clear end time to leave this entry open, or set a new time to close it."
+                  : "This entry is open. Set a Clock out time to close it."}
+              </p>
               <div className="space-y-1.5">
                 <Label htmlFor={`note-${id}`}>Note</Label>
                 <Input id={`note-${id}`} name="note" defaultValue={note || ""} placeholder="Reason for correction" className="h-9 border-black/10 bg-white" />
