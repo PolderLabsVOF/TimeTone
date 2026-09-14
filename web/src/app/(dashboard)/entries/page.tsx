@@ -142,12 +142,12 @@ export default async function EntriesPage({ searchParams }: { searchParams: Prom
           </div>
           <h2 className="text-xl font-semibold">Manual entry</h2>
           <p className="mt-1 text-xs leading-5 text-white/45">
-            For corrections, remote work, or a missed clock-in. Leave Clock out empty for an open shift.
+            For corrections, remote work, or a missed clock-in. Clock out is optional; leave it blank to save an open shift.
           </p>
           <form action={addManualEntry} className="mt-6 space-y-4">
             <EmployeeMultiSelect employees={employees} />
             <TimeEntryDateField label="Clock in" name="clock_in" required surface="dark" />
-            <TimeEntryDateField label="Clock out" name="clock_out" surface="dark" />
+            <TimeEntryDateField label="Clock out" name="clock_out" clearable clearLabel="Clear end time" surface="dark" />
             <div className="space-y-2">
               <Label htmlFor="note">Note</Label>
               <Input

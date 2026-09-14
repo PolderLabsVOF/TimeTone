@@ -15,6 +15,7 @@ All notable TimeTone releases are documented here. Versions follow
 - Prevent the terminal's idle HTTPS warm-up from exhausting heap before its configuration sync, and allow the first interactive HTTPS request enough time for DNS/TLS setup.
 - Add a `--dev` installer path that fetches a selected `dev` commit and builds the dashboard locally without publishing a release.
 - Package Next.js static and public assets into the native dev runtime so the dashboard is styled after a dev install.
+- Let users clear an entry's end time in the edit and manual-entry forms to save it as an open shift.
 
 ## [0.3.3] - 2026-09-14
 
