@@ -3,7 +3,7 @@
 All notable TimeTone releases are documented here. Versions follow
 [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
-## [0.3.5-rc.1] - 2026-09-14
+## [0.3.6-rc.1] - 2026-09-14
 
 - Add a custom accessible date picker for manual time entries and dashboard filters.
 - Add a full 24-hour quarter-hour time picker for manual time entries.
@@ -11,6 +11,19 @@ All notable TimeTone releases are documented here. Versions follow
 - Fix terminal stability for connected event uploads, reduce display flicker, and add safety for persisted state.
 - Explain the terminal's five connection status icons on the Devices page.
 - Start native installations automatically after reboot through a systemd user service, and enable the Docker daemon for Docker installs.
+- Use a system-level service for root-run native installs, including Debian LXC containers without a user D-Bus session.
+- Prevent the terminal's idle HTTPS warm-up from exhausting heap before its configuration sync, and allow the first interactive HTTPS request enough time for DNS/TLS setup.
+- Add a `--dev` installer path that fetches a selected `dev` commit and builds the dashboard locally without publishing a release.
+- Package Next.js static and public assets into the native dev runtime so the dashboard is styled after a dev install.
+- Let users clear an entry's end time in the edit and manual-entry forms to save it as an open shift.
+- Reset the manual-entry form after a successful save and show a confirmation message.
+- Restructure the Devices page into fleet summary, terminal cards, onboarding, and status guidance sections.
+- Restructure Settings into workspace summaries, grouped controls, a settings map, and separate security/migration/update areas.
+- Replace Settings anchor navigation with real keyboard-accessible tabbed sections; workspace fields remain associated with one shared save action across tabs.
+- Keep inactive Settings panels mounted so saving from Reports submits the complete workspace settings form.
+- Fix Settings tab strip sizing so labels and active/focus states are not clipped on narrow or wide layouts.
+- Overhaul the Who's here canvas with distributed node placement, independent drift, spacing forces, drag momentum, and keyboard movement.
+- Tone down the Who's here canvas with softer motion, quieter connections, smaller translucent nodes, and a calmer background.
 
 ## [0.3.3] - 2026-09-14
 

@@ -59,82 +59,116 @@ export default async function DevicesPage() {
   // eslint-disable-next-line react-hooks/purity
   const devices = getDevices(), now = Date.now();
   const latestRelease = await getLatestFirmwareRelease();
+  const onlineCount = devices.filter((device) => device.approved === 1 && device.last_seen_at && now - new Date(device.last_seen_at).getTime() < 300000).length;
+  const awaitingApprovalCount = devices.filter((device) => device.approved === 0).length;
+  const queuedEventCount = devices.reduce((total, device) => total + device.pending_events, 0);
   return (
     <>
       <PageHeading
         eyebrow="Fleet"
         title="Devices"
-        description="Terminal health, firmware versions, connectivity, and offline queue status."
+        description="See which terminals are ready, resolve the ones that need attention, and keep their settings in one place."
       />
-      <div className="grid gap-6 xl:grid-cols-[1fr_380px]">
-        <div className="grid gap-4 md:grid-cols-2">
+      <div className="mb-6 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-black/6 bg-white px-4 py-3">
+          <p className="text-xs font-medium text-black/45">Registered terminals</p>
+          <p className="mt-1 text-2xl font-semibold tracking-tight">{devices.length}</p>
+        </div>
+        <div className="rounded-2xl border border-black/6 bg-white px-4 py-3">
+          <p className="text-xs font-medium text-black/45">Online now</p>
+          <p className="mt-1 text-2xl font-semibold tracking-tight text-emerald-700">{onlineCount}</p>
+        </div>
+        <div className="rounded-2xl border border-black/6 bg-white px-4 py-3">
+          <p className="text-xs font-medium text-black/45">Queued events</p>
+          <p className="mt-1 text-2xl font-semibold tracking-tight">{queuedEventCount}</p>
+        </div>
+      </div>
+      <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <section aria-labelledby="terminals-heading">
+          <div className="mb-4 flex items-end justify-between gap-4">
+            <div>
+              <h2 id="terminals-heading" className="text-lg font-semibold tracking-tight">Your terminals</h2>
+              <p className="mt-1 text-sm text-black/45">Health and actions for each registered device.</p>
+            </div>
+            {awaitingApprovalCount > 0 && <Badge className="shrink-0 bg-orange-100 text-orange-700">{awaitingApprovalCount} awaiting approval</Badge>}
+          </div>
+          <div className="grid gap-4">
+          {devices.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-black/15 bg-white p-8 text-center">
+              <Cpu className="mx-auto size-7 text-black/35" />
+              <h3 className="mt-3 font-semibold">No terminals registered</h3>
+              <p className="mx-auto mt-1 max-w-sm text-sm leading-5 text-black/45">Pair a TimeTone terminal using the guide on the right. New devices will appear here for approval.</p>
+            </div>
+          )}
           {devices.map((device) => {
             const online = !!device.last_seen_at &&
               now - new Date(device.last_seen_at).getTime() < 300000;
             const updateAvailable = device.approved === 1 && !!latestRelease && device.firmware_version !== latestRelease.version;
             return (
-              <div
+              <article
                 key={device.id}
-                className="rounded-2xl border border-black/6 bg-white p-5"
+                className="rounded-2xl border border-black/6 bg-white p-5 shadow-sm shadow-black/[.02]"
               >
-                <div className="flex items-start justify-between">
-                  <span className="grid size-11 place-items-center rounded-xl bg-[#eef0eb]">
-                    <Cpu className="size-5" />
-                  </span>
-                  <Badge
-                    className={device.approved === 0
-                      ? "bg-orange-100 text-orange-700"
-                      : online
-                      ? "bg-emerald-100 text-emerald-700"
-                      : "bg-amber-100 text-amber-700"}
-                  >
-                    {device.approved === 0
-                      ? "Awaiting approval"
-                      : online ? "Online" : "Offline"}
-                  </Badge>
+                <div className="grid gap-6 lg:grid-cols-[minmax(13rem,1fr)_minmax(16rem,1.3fr)_10rem] lg:items-start">
+                  <div className="min-w-0">
+                    <div className="flex items-start justify-between gap-3 lg:block">
+                      <span className="grid size-11 place-items-center rounded-xl bg-[#eef0eb]">
+                        <Cpu className="size-5" />
+                      </span>
+                      <Badge
+                        className={`mt-0 lg:mt-4 ${device.approved === 0
+                          ? "bg-orange-100 text-orange-700"
+                          : online
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-amber-100 text-amber-700"}`}
+                      >
+                        {device.approved === 0
+                          ? "Awaiting approval"
+                          : online ? "Online" : "Offline"}
+                      </Badge>
+                    </div>
+                    <div className="mt-4 flex items-center gap-2">
+                      <h2 className="min-w-0 truncate font-semibold">{device.name}</h2>
+                      <button type="button" popoverTarget={`rename-${device.id}`} popoverTargetAction="toggle" className="grid size-8 shrink-0 place-items-center rounded-lg border border-black/10 text-black/50 transition hover:bg-black/[.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/30" aria-label={`Rename ${device.name}`}><Pencil className="size-3.5" /></button>
+                    </div>
+                    <p className="mt-1 truncate font-mono text-xs text-black/35" title={device.id}>
+                      {device.id}
+                    </p>
+                  </div>
+                  <dl className="grid grid-cols-2 gap-x-5 gap-y-4 border-y border-black/6 py-4 text-xs lg:border-y-0 lg:border-l lg:py-0 lg:pl-6">
+                    <div>
+                      <dt className="text-black/35">Last contact</dt>
+                      <dd className="mt-1 font-medium">
+                        {device.last_seen_at
+                          ? formatDistanceToNow(new Date(device.last_seen_at), { addSuffix: true })
+                          : "Never"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-black/35">Firmware</dt>
+                      <dd className="mt-1 font-medium">{device.firmware_version || "Unknown"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-black/35">IP address</dt>
+                      <dd className="mt-1 truncate font-mono" title={device.ip_address || undefined}>{device.ip_address || "—"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-black/35">Queue</dt>
+                      <dd className="mt-1 font-medium">{device.pending_events} events</dd>
+                    </div>
+                  </dl>
+                  {device.approved === 1 && (
+                    <form action={requestDeviceSync} className="lg:justify-self-end">
+                      <input type="hidden" name="id" value={device.id} />
+                      <Button type="submit" size="sm" variant="outline" className="w-full">Sync now</Button>
+                    </form>
+                  )}
                 </div>
-                <div className="mt-5 flex items-center justify-between gap-2">
-                  <h2 className="min-w-0 truncate font-semibold">{device.name}</h2>
-                  <button type="button" popoverTarget={`rename-${device.id}`} popoverTargetAction="toggle" className="grid size-8 shrink-0 place-items-center rounded-lg border border-black/10 text-black/50 hover:bg-black/[.03]" aria-label={`Rename ${device.name}`}><Pencil className="size-3.5" /></button>
-                </div>
-                <p className="mt-1 font-mono text-xs text-black/35">
-                  {device.id}
-                </p>
                 <div id={`rename-${device.id}`} popover="auto" className="fixed inset-0 m-auto w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-black/10 bg-white p-5 shadow-xl shadow-black/10" style={{ margin: "auto" }}>
                   <h3 className="font-semibold">Rename terminal</h3>
                   <p className="mt-1 text-sm text-black/45">This changes the display name only; pairing and history are kept.</p>
                   <form action={renameDevice} className="mt-5 space-y-3"><input type="hidden" name="id" value={device.id} /><label className="block text-xs font-medium text-black/55" htmlFor={`name-${device.id}`}>Terminal name</label><input id={`name-${device.id}`} name="name" defaultValue={device.name} className="h-10 w-full rounded-lg border border-black/10 bg-white px-3 text-sm" required /><Button type="submit" className="w-full bg-[#17211b] text-white hover:bg-[#26352c]">Save name</Button></form>
                 </div>
-                <dl className="mt-5 grid grid-cols-2 gap-4 border-t border-black/6 pt-4 text-xs">
-                  <div>
-                    <dt className="text-black/35">Last contact</dt>
-                    <dd className="mt-1 font-medium">
-                      {device.last_seen_at
-                        ? formatDistanceToNow(new Date(device.last_seen_at), {
-                          addSuffix: true,
-                        })
-                        : "Never"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-black/35">Firmware</dt>
-                    <dd className="mt-1 font-medium">
-                      {device.firmware_version || "Unknown"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-black/35">IP address</dt>
-                    <dd className="mt-1 font-mono">
-                      {device.ip_address || "—"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-black/35">Queue</dt>
-                    <dd className="mt-1 font-medium">
-                      {device.pending_events} events
-                    </dd>
-                  </div>
-                </dl>
                 {device.approved === 1 && latestRelease && (updateAvailable || device.ota_version) && (
                   <div className="mt-5 rounded-xl border border-[#d6e8ad] bg-[#f3f9e8] p-3 dark:border-[#526d3d] dark:bg-[#263b2b]">
                     {device.ota_version
@@ -175,10 +209,6 @@ export default async function DevicesPage() {
                       </label>
                       <Button type="submit" size="sm" className="sm:col-span-2 bg-[#17211b] text-white hover:bg-[#26352c]">Save device settings</Button>
                     </form>
-                    <form action={requestDeviceSync} className="mt-3">
-                      <input type="hidden" name="id" value={device.id} />
-                      <Button type="submit" size="sm" variant="outline" className="w-full">Fetch employees &amp; settings now</Button>
-                    </form>
                   </details>
                 )}
                 {device.approved === 0 && (
@@ -205,10 +235,11 @@ export default async function DevicesPage() {
                     <form action={deleteDevice} className="mt-5 flex gap-2"><input type="hidden" name="id" value={device.id} /><Button type="submit" className="flex-1 bg-red-600 text-white hover:bg-red-700">Delete device</Button><button type="button" popoverTarget={`delete-${device.id}`} popoverTargetAction="hide" className="h-9 rounded-lg border border-black/10 px-3 text-sm font-medium hover:bg-black/[.03]">Cancel</button></form>
                   </div>
                 </div>
-              </div>
+              </article>
             );
           })}
-        </div>
+          </div>
+        </section>
         <div className="grid h-fit gap-6">
           <div className="rounded-2xl bg-[#17211b] p-6 text-white">
             <div className="flex items-center gap-3">

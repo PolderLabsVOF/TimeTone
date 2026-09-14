@@ -29,17 +29,11 @@ static SemaphoreHandle_t s_wake;
 static bool s_ota_in_progress;
 static volatile bool s_force_config;
 static volatile bool s_code_requested;
-static volatile bool s_warm_requested;
 static TickType_t s_next_pair_attempt;
 static volatile bool s_clock_request_in_flight;
 static uint8_t s_sync_failures;
-// A colour code is the terminal's interactive path. Retain its HTTP client so
-// TLS is negotiated once rather than again for every employee. Background
-// calls stay one-shot: some reverse proxies close their idle HTTP/1.1 sockets,
-// and reusing those sockets can incorrectly trap a terminal in retry mode.
-static esp_http_client_handle_t s_clock_client;
-static char s_clock_client_server[160];
-static bool s_clock_connection_warmed;
+static esp_http_client_handle_t s_http_client;
+static char s_http_client_url[256];
 
 typedef struct { char *data; size_t length; size_t capacity; } response_buffer_t;
 static void ota_task(void *argument);
@@ -63,14 +57,6 @@ static TickType_t retry_ticks(uint16_t base_seconds)
     return pdMS_TO_TICKS(seconds * 1000U);
 }
 
-static void discard_clock_client(void)
-{
-    if (s_clock_client) esp_http_client_cleanup(s_clock_client);
-    s_clock_client = NULL;
-    s_clock_client_server[0] = 0;
-    s_clock_connection_warmed = false;
-}
-
 static esp_err_t http_event(esp_http_client_event_t *event)
 {
     response_buffer_t *buffer = event->user_data;
@@ -83,6 +69,15 @@ static esp_err_t http_event(esp_http_client_event_t *event)
     return ESP_OK;
 }
 
+static void http_client_reset(void)
+{
+    if (s_http_client) {
+        esp_http_client_cleanup(s_http_client);
+        s_http_client = NULL;
+    }
+    s_http_client_url[0] = 0;
+}
+
 static int request(const char *path, esp_http_client_method_t method, const char *body, char *response, size_t response_size)
 {
     const tk_config_t *config = tk_config_get();
@@ -91,7 +86,6 @@ static int request(const char *path, esp_http_client_method_t method, const char
     snprintf(url, sizeof(url), "%s%s", config->server_url, path);
     response_buffer_t buffer = { .data = response, .capacity = response_size };
     response[0] = 0;
-    bool is_clock = strstr(path, "/clock") != NULL;
     esp_http_client_config_t client_config = {
         .url = url,
         .method = method,
@@ -102,34 +96,36 @@ static int request(const char *path, esp_http_client_method_t method, const char
         // A tiny heartbeat timeout caused otherwise healthy terminals to flap
         // on busy Wi-Fi. These limits stay bounded while allowing a full
         // connection setup to complete reliably.
-        // Clock requests are the interactive path. Four and a half seconds is
-        // enough for DNS/TLS on the supported networks, while a dead route
-        // fails quickly instead of leaving the next person waiting for 10s.
-        .timeout_ms = strstr(path, "/heartbeat") ? 8000 : strstr(path, "/clock") ? 4500 : strstr(path, "/events") ? 10000 : 15000,
+        // Clock requests may be the first HTTPS request after wake. Allow the
+        // full DNS/TCP/TLS setup to finish on a busy Wi-Fi network, while
+        // keeping the limit bounded when the route is genuinely unavailable.
+        // Interactive clock requests fail fast because the durable queue will
+        // retry them; background sync gets a little more time to recover.
+        .timeout_ms = strstr(path, "/clock") ? 4000 : strstr(path, "/heartbeat") ? 8000 : strstr(path, "/events") ? 10000 : 15000,
+        // One client is reused for the short-lived API burst. This keeps the
+        // TLS session and socket alive between heartbeat/config/code requests,
+        // avoiding a full ECDH handshake for every tap without retaining a
+        // separate idle warm-up client.
         .keep_alive_enable = true,
         .event_handler = http_event,
         .user_data = &buffer,
         .crt_bundle_attach = esp_crt_bundle_attach,
     };
-    // Settings may change the server URL from the terminal web UI. Dispose of
-    // the retained interactive connection only in that case.
-    if (s_clock_client && strcmp(s_clock_client_server, config->server_url) != 0) {
-        discard_clock_client();
+    // The handle is shared across API paths. Compare only the origin; the
+    // endpoint path changes on every heartbeat/config/clock request.
+    if (s_http_client && strcmp(s_http_client_url, config->server_url) != 0) http_client_reset();
+    if (!s_http_client) {
+        s_http_client = esp_http_client_init(&client_config);
+        if (!s_http_client) return -1;
+        strlcpy(s_http_client_url, config->server_url, sizeof(s_http_client_url));
     }
-    esp_http_client_handle_t client = is_clock ? s_clock_client : NULL;
-    if (!client) {
-        client = esp_http_client_init(&client_config);
-        if (is_clock && client) {
-            s_clock_client = client;
-            strlcpy(s_clock_client_server, config->server_url, sizeof(s_clock_client_server));
-        }
+    esp_http_client_handle_t client = s_http_client;
+    if (esp_http_client_set_url(client, url) != ESP_OK ||
+        esp_http_client_set_method(client, method) != ESP_OK ||
+        esp_http_client_set_user_data(client, &buffer) != ESP_OK) {
+        http_client_reset();
+        return -1;
     }
-    if (!client) return -1;
-    // Reusing a client requires updating its per-request values explicitly.
-    esp_http_client_set_url(client, url);
-    esp_http_client_set_method(client, method);
-    esp_http_client_set_timeout_ms(client, is_clock ? 4500 : client_config.timeout_ms);
-    esp_http_client_set_user_data(client, &buffer);
     char auth[150];
     snprintf(auth, sizeof(auth), "Bearer %s", config->device_token);
     esp_http_client_set_header(client, "Authorization", auth);
@@ -145,9 +141,12 @@ static int request(const char *path, esp_http_client_method_t method, const char
     int status = esp_http_client_get_status_code(client);
     if (status <= 0) status = err == ESP_OK ? 200 : -1;
     int64_t elapsed_ms = (esp_timer_get_time() - started_us) / 1000;
-    if (err != ESP_OK) ESP_LOGW(TAG, "%s failed after %lldms: %s", path, elapsed_ms, esp_err_to_name(err));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "%s failed after %lldms: status=%d: %s", path, elapsed_ms, status,
+                 esp_err_to_name(err));
+        http_client_reset();
+    }
     else if (strstr(path, "/clock") && elapsed_ms > 1000) ESP_LOGW(TAG, "slow clock request: %lldms", elapsed_ms);
-    if (!is_clock) esp_http_client_cleanup(client);
     return status;
 }
 
@@ -469,20 +468,6 @@ static esp_err_t push_events(void)
     return err;
 }
 
-static int warm_clock_connection(void)
-{
-    if (s_clock_connection_warmed) return 200;
-    char response[96];
-    int status = request("/api/device/v1/clock", HTTP_METHOD_POST, "{\"warmup\":true}", response, sizeof(response));
-    // Even a legacy server returning 400 has completed DNS/TCP/TLS and left
-    // the retained client ready for the real colour-code request.
-    if (status > 0) {
-        s_clock_connection_warmed = true;
-        ESP_LOGI(TAG, "clock connection warmed");
-    }
-    return status;
-}
-
 // The push_events() overflow corrupted the heap and rebooted with no evidence,
 // so log the headroom the health pass actually has (and the heap, which is the
 // other budget this task competes for) rather than discovering the next one by
@@ -517,10 +502,6 @@ static int heartbeat(void)
             if (cJSON_IsTrue(cJSON_GetObjectItem(root, "configRefresh"))) s_force_config = true;
             cJSON_Delete(root);
         }
-        // Warm the dedicated keep-alive client while the terminal is idle.
-        // This performs DNS/TCP/TLS before a person reaches the keypad; the
-        // response has no timekeeping side effect.
-        warm_clock_connection();
         return status;
     }
     if (status == 401) {
@@ -565,10 +546,8 @@ static void api_task(void *argument)
         now = xTaskGetTickCount();
         bool refresh_requested = s_force_config;
         bool code_requested = s_code_requested;
-        bool warm_requested = s_warm_requested;
         s_force_config = false;
         s_code_requested = false;
-        s_warm_requested = false;
         bool health_due = tick_due(now, next_health);
         bool config_due = tick_due(now, next_config);
         if (!tk_network_connected() || !tk_config_get()->configured || tk_display_is_sleeping() || s_clock_request_in_flight) {
@@ -577,6 +556,17 @@ static void api_task(void *argument)
             if (health_due) next_health = now + retry_ticks(config->sync_interval_seconds);
             if (config_due) next_config = now + pdMS_TO_TICKS(30000);
             continue;
+        }
+
+        // A queued tap is the interactive priority. Send it before a due
+        // background heartbeat/config refresh so a user never waits behind a
+        // second full TLS exchange.
+        bool code_attempted = false;
+        if (code_requested) {
+            esp_err_t code_result = push_code_requests();
+            code_attempted = true;
+            if (code_result == ESP_OK) tk_display_set_network_state(TK_DISPLAY_ONLINE);
+            else if (code_result != ESP_ERR_NOT_FOUND) tk_display_set_network_state(TK_DISPLAY_SYNC_RETRYING);
         }
 
         if (refresh_requested || health_due || config_due) {
@@ -611,14 +601,11 @@ static void api_task(void *argument)
                 tk_display_set_network_state(health_status == 401 ? TK_DISPLAY_CONNECTING : TK_DISPLAY_SYNC_RETRYING);
             }
         }
-        // Waking from low power primes only the retained interactive client.
-        // It does not fetch settings or perform the removed periodic sync.
-        if (warm_requested) warm_clock_connection();
         // A colour-code entry is the only routine server request after setup.
         // A persisted code is retried after every healthy heartbeat, which
         // recovers submissions made during an outage even when nobody taps
         // the terminal again. Request IDs make these retries idempotent.
-        if (code_requested || (health_due && !s_sync_failures)) {
+        if (!code_attempted && (health_due && !s_sync_failures)) {
             esp_err_t code_result = push_code_requests();
             if (code_result == ESP_OK) tk_display_set_network_state(TK_DISPLAY_ONLINE);
             else if (code_result != ESP_ERR_NOT_FOUND) tk_display_set_network_state(TK_DISPLAY_SYNC_RETRYING);
@@ -630,26 +617,18 @@ esp_err_t tk_api_start(void)
 {
     s_wake = xSemaphoreCreateBinary();
     if (!s_wake) return ESP_ERR_NO_MEM;
-    if (xTaskCreate(api_task, "timekeep_api", TK_API_TASK_STACK, NULL, 4, NULL) != pdPASS) return ESP_ERR_NO_MEM;
+    if (xTaskCreatePinnedToCore(api_task, "timekeep_api", TK_API_TASK_STACK, NULL, 4, NULL, 0) != pdPASS) return ESP_ERR_NO_MEM;
     s_force_config = true;
     xSemaphoreGive(s_wake);
     return ESP_OK;
 }
 
-void tk_api_wake(void) { s_clock_connection_warmed = false; s_force_config = true; if (s_wake) xSemaphoreGive(s_wake); }
+void tk_api_wake(void) { s_force_config = true; if (s_wake) xSemaphoreGive(s_wake); }
 void tk_api_resume(void)
 {
-    // A proxy commonly drops an idle HTTP keep-alive while the terminal is in
-    // low power. Keeping that socket makes the first colour code after wake
-    // wait for a TCP timeout. Start a clean TLS connection during wake-up,
-    // before anyone reaches the keypad, and independently validate Wi-Fi.
-    // A touch wake (or sleep-cycle wake) is also the cheapest moment to
-    // refresh server config: the radio and the user are both already there,
-    // so kick off a full heartbeat + config fetch instead of only warming
-    // the socket.
+    // Wake-up starts a clean, one-shot request sequence and refreshes the
+    // server config before the next interactive code entry.
     tk_network_resume();
-    if (!s_clock_request_in_flight) discard_clock_client();
-    s_warm_requested = true;
     s_force_config = true;
     if (s_wake) xSemaphoreGive(s_wake);
 }

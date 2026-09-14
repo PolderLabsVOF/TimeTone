@@ -230,6 +230,7 @@ export async function addManualEntry(formData: FormData) {
       }
     })();
     revalidateTimeEntryViews();
+    redirect("/entries?entrySuccess=1");
   } catch (error) {
     redirectEntryError(error);
   }
