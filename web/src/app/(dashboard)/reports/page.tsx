@@ -14,8 +14,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   const settings = getSettings();
   const employees = getEmployees();
   const windowDays = Math.max(1, Math.min(365, Number(query.window || settings.default_report_window)));
-  const end = query.to ? endOfDay(new Date(query.to)) : new Date();
-  const start = query.from ? startOfDay(new Date(query.from)) : startOfDay(subDays(end, windowDays - 1));
+  const end = query.to ? endOfDay(new Date(`${query.to}T00:00:00`)) : new Date();
+  const start = query.from ? startOfDay(new Date(`${query.from}T00:00:00`)) : startOfDay(subDays(end, windowDays - 1));
   const employeeId = query.employee || undefined;
   const entries = getFilteredEntries({ from: start.toISOString(), to: new Date(end.getTime() + 1).toISOString(), employeeId });
   const totals = new Map<string, number>();
